@@ -5,13 +5,13 @@ import { Trash2, ImageOff } from "lucide-react";
 import { CARD_TYPES } from "@/lib/cardTypes";
 import { deletePost } from "@/app/post-actions";
 import { EmptyState } from "./LibraryWall";
-import { PhotoGallery } from "./PhotoGallery";
 
 export interface ProfilePost {
   id: string;
-  imageUrls: string[];
+  imageUrl: string | null;
   caption: string | null;
   createdAt: string;
+  eventTitle?: string | null;
 }
 
 export function ProfileWall({
@@ -90,8 +90,19 @@ function PostCard({
           </div>
         </div>
 
-        {post.imageUrls.length > 0 ? (
-          <PhotoGallery images={post.imageUrls} alt={post.caption ?? "Post"} />
+        {post.eventTitle && (
+          <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
+            recap of <span className="font-medium">{post.eventTitle}</span>
+          </p>
+        )}
+
+        {post.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={post.imageUrl}
+            alt={post.caption ?? "Post"}
+            className="w-full rounded-xl border border-neutral-200/70 object-cover dark:border-neutral-800"
+          />
         ) : (
           <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-neutral-100 text-neutral-400 dark:bg-neutral-800">
             <ImageOff className="h-6 w-6" />

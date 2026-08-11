@@ -35,8 +35,8 @@ export interface ScoutQuery {
 
 export interface GeneratedCard {
   /**
-   * "time_window" for an expiring opportunity with a REAL deadline from the
-   * source; "scout" for an evergreen local gem / discovery item.
+   * "time_window" for an event/opportunity with a real date or defined period;
+   * "scout" only for a genuinely timeless standing gem.
    */
   kind: "scout" | "time_window";
   category: CategoryKey;
@@ -44,11 +44,16 @@ export interface GeneratedCard {
   summary: string;
   action_label: string;
   action_url: string | null;
-  /** time_window only — ISO date/datetime the window closes. Never invented. */
-  expires_at?: string | null;
-  /** time_window only — ISO date/datetime the window opens, if relevant. */
+  /**
+   * ISO the event STARTS. Includes the clock time WITH the city's UTC offset
+   * when the source states one (e.g. "2026-08-11T20:00:00-07:00"); a bare date
+   * ("2026-08-11") when only a day is known. Never invented.
+   */
   opens_at?: string | null;
-  /** time_window only — soft window label when no machine date exists. */
+  /** ISO the event ENDS / the last day to act (event end, festival last day,
+   *  season end, lottery deadline). Never invented. */
+  expires_at?: string | null;
+  /** Short human phrase for a fuzzy/seasonal period ("May–August", "Ongoing"). */
   window_label?: string | null;
 }
 
@@ -111,7 +116,7 @@ export async function generateSearchQueries(
     messages: [
       {
         role: "user",
-        content: `Today is ${todayISO}. A user described their standing interests and location:\n\n"""${standingPrompt}"""\n\nThis is an "Opportunity Engine": it surfaces things to DO — hyper-local gems and, especially, TIME-SENSITIVE opportunities people miss because they didn't know in time. The user may list more than one location; spread your queries across each of them. Write 4-6 focused web search queries that surface, for the user's location(s):\n- Astrotourism & nature windows (meteor showers, aurora visibility, tides, blooms, whale/butterfly migrations)\n- Permits & lotteries with deadlines (park permits, campsite lotteries, race registrations)\n- Hyper-local pop-ups & one-off events (chef pop-ups, sample sales, street fairs, festivals)\n- Notable local happenings and hidden gems tied to their stated interests\n${window} Prefer concrete queries (neighborhoods, venues, dates, event names). Mark time-sensitive/dated queries with topic "news", evergreen ones with "general".`,
+        content: `Today is ${todayISO}. A user described their standing interests and location:\n\n"""${standingPrompt}"""\n\nThis is an "Opportunity Engine": it surfaces things to DO — hyper-local gems and, especially, TIME-SENSITIVE opportunities people miss because they didn't know in time. The user may list more than one location; spread your queries across each of them. Write 4-6 focused web search queries that surface, for the user's location(s):\n- Astrotourism & nature windows (meteor showers, aurora visibility, tides, blooms, whale/butterfly migrations)\n- Permits & lotteries with deadlines (park permits, campsite lotteries, race registrations)\n- Hyper-local pop-ups & one-off events (chef pop-ups, sample sales, street fairs, festivals)\n- Notable local happenings and hidden gems tied to their stated interests\n${window} Prefer concrete queries (neighborhoods, venues, dates, event names) and sources that state exact dates and start times. Mark time-sensitive/dated queries with topic "news", evergreen ones with "general".`,
       },
     ],
   });
@@ -134,17 +139,21 @@ export async function synthesizeCards(
   const msg = await anthropic().messages.create({
     model: SYNTHESIS_MODEL,
     max_tokens: 4096,
-    system: `You are the overnight scout for an "Opportunity Engine" — an anti-doomscroll app that surfaces things to DO. You turn raw web search results into a calm, finite deck of bite-sized cards, tilted toward local gems and TIME-SENSITIVE opportunities the user would regret missing. ${framing}
+    system: `You are the overnight scout for an "Opportunity Engine" — an anti-doomscroll app that surfaces things to DO. You turn raw web search results into a calm, finite deck of bite-sized cards. EVERY card is a real, attendable event or opportunity at or near the user's location — something they could put on a calendar — never generic news. ${framing}
 
 Each card has a "kind":
-- "time_window" — anything with a specific date or deadline: an event on given dates (festival, show, market day, exhibit), a meteor shower peaking, a permit lottery or registration closing, a weekend-only pop-up, a seasonal window. Set expires_at to the ISO date it ends / the last day to act, and opens_at when it hasn't started yet — both taken FROM THE SOURCE.
-- "scout" — an evergreen local gem or discovery with genuinely no date (a hidden viewpoint, a classic bookstore, a standing weekly market).
+- "time_window" — anything with a real date or a defined period: a one-time event on a given date/time (a show, poetry slam, market day, festival), a meteor shower peak, a permit lottery or registration deadline, or a seasonal/recurring window (a whale-watching season, a weekly farmers market). ALMOST EVERYTHING should be a time_window.
+- "scout" — ONLY for a genuinely timeless standing gem with no date or season at all (e.g. a hidden viewpoint that's simply always there).
+
+Timing — this is what makes a card useful, so get it exactly right, FROM THE SOURCE ONLY:
+- opens_at = when it STARTS. If the source gives a clock time (e.g. "8pm on August 11"), output the FULL local datetime WITH the city's UTC offset, e.g. "2026-08-11T20:00:00-07:00" (US Pacific in summer). If only a day is given, output the bare date "2026-08-11".
+- expires_at = when it ENDS or the last day to act: a one-evening event's end, a festival's last day, a season's end ("May–August" → the August end date), a lottery/registration deadline.
+- window_label = a short human phrase for a fuzzy or seasonal period when there's no single instant ("May–August", "This weekend only", "Ongoing").
+- CRITICAL: never invent a date or time — use only what the source supports. If a specific date isn't given but it's clearly seasonal/ongoing, set window_label (and expires_at only if the source states a real end). A wrong time or countdown destroys trust.
 
 Rules:
-- Prefer time_window whenever a real date exists. An event that is upcoming, or happening within the next couple of weeks, with a known date should be a time_window — NOT a scout card. That countdown is the whole point of the app. Use scout only for dateless gems, and skip anything already past.
-- CRITICAL: never invent a date. Only set expires_at/opens_at to a date you can support from the source. If something is time-sensitive but you can't find an exact date, use kind "scout" (optionally set window_label to a soft phrase like "This weekend only"). A wrong countdown destroys trust.
 - Ground every card in the provided search context. Use a REAL url from the context for action_url; never invent URLs. If no good source exists, set action_url to null.
-- Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted news. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
+- Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted events. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
 - Keep summaries to 2-3 sentences, factual and low-anxiety. No hype, no clickbait, no fear-mongering.
 - Avoid near-duplicate cards. Titles are punchy and specific (aim under ~70 characters).`,
     tools: [
@@ -164,7 +173,7 @@ Rules:
                   kind: {
                     type: "string",
                     enum: ["scout", "time_window"],
-                    description: "'time_window' only if a REAL deadline/date is in the source; else 'scout'.",
+                    description: "'time_window' for anything with a real date/period; 'scout' only for a timeless standing gem.",
                   },
                   category: { type: "string", enum: SCOUT_CATEGORY_KEYS },
                   title: { type: "string" },
@@ -180,17 +189,17 @@ Rules:
                     type: ["string", "null"],
                     description: "A real source URL from the context, or null.",
                   },
-                  expires_at: {
-                    type: ["string", "null"],
-                    description: "time_window only: ISO date/datetime the window CLOSES, from the source. Never invented.",
-                  },
                   opens_at: {
                     type: ["string", "null"],
-                    description: "time_window only: ISO date/datetime the window OPENS, if relevant. Else null.",
+                    description: "ISO the event STARTS. Include the clock time WITH the city's UTC offset when the source gives one (e.g. '2026-08-11T20:00:00-07:00'); else a bare date. Never invented.",
+                  },
+                  expires_at: {
+                    type: ["string", "null"],
+                    description: "ISO the event ENDS / last day to act (event end, festival last day, season end, deadline). Never invented.",
                   },
                   window_label: {
                     type: ["string", "null"],
-                    description: "Optional soft window phrase when no machine date exists (e.g. 'This weekend only').",
+                    description: "Short phrase for a fuzzy/seasonal period when no single instant applies (e.g. 'May–August', 'Ongoing').",
                   },
                 },
                 required: ["kind", "category", "title", "summary", "action_label", "action_url"],

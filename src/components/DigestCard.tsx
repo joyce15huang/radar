@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowUpRight,
@@ -17,6 +18,9 @@ import { CARD_TYPES, initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
 import { windowStatus, type WindowUrgency } from "@/lib/timeWindow";
 import { eventDateLabel } from "@/lib/dateLabel";
+import { addScoutedToCalendar } from "@/app/deck-actions";
+import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
+import { DateTimeField, type DTValue } from "./DateTimeField";
 import { PhotoGallery } from "./PhotoGallery";
 import { RichText } from "./RichText";
 
@@ -109,7 +113,7 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-/** The universal top-right Save (bookmark) button. */
+/** The Save (bookmark) button — only friends' posts are savable to the Library. */
 function SaveButton({ onSave }: { onSave: () => void }) {
   return (
     <button
@@ -126,8 +130,8 @@ function SaveButton({ onSave }: { onSave: () => void }) {
 
 /**
  * The date shown on top of a scouted card, with the time_window countdown on the
- * same line (e.g. "Tue, Aug 12 · Closes in 2 days"). Replaces the old category /
- * "Window" tag chips. A dateless gem shows a soft "Ongoing" pill instead.
+ * same line (e.g. "Tue, Aug 12 · Closes in 2 days"). A dateless gem shows a soft
+ * "Ongoing" pill instead.
  */
 function DateLine({
   card,
@@ -139,7 +143,6 @@ function DateLine({
   const w = card.type === "time_window" ? windowStatus(card) : null;
   const hasCountdown = Boolean(w && w.label);
   const gemFallback = card.type === "time_window" ? (card.windowLabel ?? "") : "";
-  // Date pill text: the real date, else a soft label when there is no countdown.
   const pill = dateText || (hasCountdown ? "" : gemFallback || "Ongoing");
 
   return (
@@ -172,12 +175,11 @@ function CardHeader({
   card: DigestCardData;
   onResolve: (id: string, status: ResolveStatus) => void;
 }) {
-  // Scouted cards: date on top-left, Save on the right. No category/type tag.
+  // Scouted cards: date on top-left, nothing on the right (not savable).
   if (card.type === "news_scout" || card.type === "time_window") {
     return (
       <div className="mb-3 flex items-center justify-between gap-2">
         <DateLine card={card} />
-        <SaveButton onSave={() => onResolve(card.id, "saved")} />
       </div>
     );
   }
@@ -210,7 +212,10 @@ function CardHeader({
             {card.senderName}
           </span>
         )}
-        <SaveButton onSave={() => onResolve(card.id, "saved")} />
+        {/* Save only exists on friends' posts. */}
+        {card.type === "social_post" && (
+          <SaveButton onSave={() => onResolve(card.id, "saved")} />
+        )}
       </div>
     </div>
   );
@@ -400,16 +405,40 @@ function safeHostname(url: string): string {
 
 function PrimaryButton({
   onClick,
+  disabled,
   children,
 }: {
   onClick: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+      disabled={disabled}
+      className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
     >
       {children}
     </button>
@@ -434,6 +463,156 @@ function GhostButton({
       <Icon className="h-4 w-4" strokeWidth={2.25} />
       {label}
     </button>
+  );
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function isoHasClock(iso?: string): boolean {
+  if (!iso) return false;
+  const s = String(iso).trim();
+  return !DATE_ONLY.test(s) && /T\d{2}:\d{2}/.test(s);
+}
+
+const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTH_RE =
+  "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
+
+/**
+ * Best-effort, ZERO-COST client-side parse of a date/time out of free text
+ * (title + summary), used only to PREFILL the picker when the scout didn't
+ * already provide a structured date. Handles "August 11", "Aug 11 at 8pm",
+ * "8pm on Aug 11", "11 August", "8:30 PM". Returns null if nothing confident.
+ */
+function guessDateTime(text: string): DTValue | null {
+  const t = text.toLowerCase();
+  let mo = -1;
+  let day = -1;
+
+  let m = t.match(new RegExp(`\\b(${MONTH_RE})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`));
+  if (m) {
+    mo = MONTH_KEYS.indexOf(m[1].slice(0, 3));
+    day = parseInt(m[2], 10);
+  } else {
+    m = t.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_RE})\\b`));
+    if (m) {
+      day = parseInt(m[1], 10);
+      mo = MONTH_KEYS.indexOf(m[2].slice(0, 3));
+    }
+  }
+  if (mo < 0 || day < 1 || day > 31) return null;
+
+  // Optional time: "8pm", "8:30 pm", "20:00".
+  let time: string | null = null;
+  const tm = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (tm) {
+    let h = parseInt(tm[1], 10) % 12;
+    if (tm[3] === "pm") h += 12;
+    time = `${String(h).padStart(2, "0")}:${tm[2] ?? "00"}`;
+  } else {
+    const t24 = t.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/);
+    if (t24) time = `${t24[1].padStart(2, "0")}:${t24[2]}`;
+  }
+
+  // Year: explicit if present, else the next occurrence (allow ~2 months slack).
+  const ym = t.match(/\b(20\d{2})\b/);
+  let year = ym ? parseInt(ym[1], 10) : new Date().getFullYear();
+  if (!ym) {
+    const candidate = new Date(year, mo, day).getTime();
+    if (candidate < Date.now() - 60 * 86_400_000) year += 1;
+  }
+
+  const date = `${year}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return { date, time };
+}
+
+/** The picker's initial value: structured scout date → text guess → today. */
+function initialPickerValue(
+  card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>,
+): DTValue {
+  const tz = clientTimeZone();
+
+  if (card.type === "time_window") {
+    const iso = card.opensAt ?? card.expiresAt;
+    if (iso && !Number.isNaN(Date.parse(iso))) {
+      const loc = localFromIso(iso, tz);
+      if (loc) return { date: loc.date, time: isoHasClock(iso) ? loc.time : null };
+    }
+  }
+
+  const guess = guessDateTime(`${card.title}. ${card.summary}`);
+  if (guess) return guess;
+
+  const today = localFromIso(new Date().toISOString(), tz)?.date ?? "";
+  return { date: today, time: null };
+}
+
+/**
+ * Add-to-Calendar (secondary action) for a scouted card. Opens an inline date
+ * picker prefilled with the event's known date/time (or a best guess from the
+ * text). Confirming makes the card an owned, editable personal event and it
+ * leaves the deck.
+ */
+function AddToCalendar({
+  card,
+  onAdded,
+}: {
+  card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
+  onAdded: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState<DTValue>({ date: "", time: null });
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <SecondaryButton
+        onClick={() => {
+          setValue(initialPickerValue(card));
+          setError(null);
+          setOpen(true);
+        }}
+      >
+        <CalendarPlus className="h-4 w-4" strokeWidth={2.25} />
+        Add to Calendar
+      </SecondaryButton>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-2">
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">Add to your calendar:</p>
+      <DateTimeField value={value} onChange={setValue} />
+      {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+      <div className="flex items-center gap-2">
+        <PrimaryButton
+          disabled={pending}
+          onClick={async () => {
+            if (!value.date) {
+              setError("Pick a date.");
+              return;
+            }
+            const iso = isoFromLocal(value.date, value.time, clientTimeZone());
+            if (!iso) {
+              setError("Pick a valid date.");
+              return;
+            }
+            setPending(true);
+            setError(null);
+            const r = await addScoutedToCalendar({ id: card.id, startsAt: iso, hasTime: value.time !== null });
+            if (r.ok) {
+              onAdded();
+              return;
+            }
+            setPending(false);
+            setError(r.error ?? "Couldn't add that.");
+          }}
+        >
+          {pending ? "Adding…" : "Add"}
+        </PrimaryButton>
+        <GhostButton onClick={() => setOpen(false)} label="Cancel" />
+      </div>
+    </div>
   );
 }
 
@@ -482,42 +661,24 @@ function CardActions({
         </div>
       );
 
+    // Scouted cards: the source link is the primary action; Add to Calendar is
+    // the secondary option (opens a prefilled date picker).
     case "news_scout":
+    case "time_window": {
+      const url = card.actionUrl;
       return (
-        <div className="flex items-center gap-2">
-          {card.actionUrl ? (
-            <PrimaryButton
-              onClick={() => window.open(card.actionUrl, "_blank", "noopener,noreferrer")}
-            >
+        <div className="flex flex-wrap items-center gap-2">
+          {url ? (
+            <PrimaryButton onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>
               {card.actionLabel}
               <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
             </PrimaryButton>
           ) : null}
-          {dismiss}
-        </div>
-      );
-
-    case "time_window":
-      return (
-        <div className="flex flex-wrap items-center gap-2">
-          <PrimaryButton onClick={() => onResolve(card.id, "accepted")}>
-            <CalendarPlus className="h-4 w-4" strokeWidth={2.25} />
-            Add Reminder
-          </PrimaryButton>
-          {card.actionUrl ? (
-            <a
-              href={card.actionUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 dark:text-amber-400 dark:hover:bg-amber-500/10"
-            >
-              {card.actionLabel}
-              <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
-            </a>
-          ) : null}
+          <AddToCalendar card={card} onAdded={() => onResolve(card.id, "accepted")} />
           <div className="ml-auto">{dismiss}</div>
         </div>
       );
+    }
 
     case "calendar_radar":
       return (

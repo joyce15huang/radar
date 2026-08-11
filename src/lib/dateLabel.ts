@@ -14,9 +14,17 @@ function toDate(iso?: string | null): Date | null {
   return Number.isNaN(t) ? null : new Date(t);
 }
 
+/** True when an ISO value carries a real clock time (not a bare calendar day). */
+function hasClockTime(iso?: string | null): boolean {
+  if (!iso) return false;
+  const s = String(iso).trim();
+  return !DATE_ONLY.test(s) && /T\d{2}:\d{2}/.test(s);
+}
+
 /**
- * A human date for a card: "Tue, Aug 12", or a range "Aug 8 – 11" /
- * "Aug 30 – Sep 2". Returns "" when there is no usable date.
+ * A human date for a card: "Mon, Aug 11 · 8:00 PM" when a start time is known,
+ * "Tue, Aug 12" for a day, or a range "Aug 8 – 11" / "Aug 30 – Sep 2". Returns
+ * "" when there is no usable date.
  */
 export function eventDateLabel(startISO?: string | null, endISO?: string | null): string {
   const s = toDate(startISO);
@@ -34,11 +42,18 @@ export function eventDateLabel(startISO?: string | null, endISO?: string | null)
   const dayNum = (d: Date) => d.toLocaleDateString("en-US", { timeZone: APP_TZ, day: "numeric" });
   const monthDay = (d: Date) =>
     d.toLocaleDateString("en-US", { timeZone: APP_TZ, month: "short", day: "numeric" });
+  const clock = (d: Date) =>
+    d.toLocaleTimeString("en-US", { timeZone: APP_TZ, hour: "numeric", minute: "2-digit" });
 
+  // A multi-day span reads as a date range (no clock time).
   if (s && e && day(s) !== day(e)) {
     const end = monthShort(s) === monthShort(e) ? dayNum(e) : monthDay(e);
     return `${monthDay(s)} – ${end}`;
   }
+
+  // Single day: append the start time when the source gave one.
   const one = s ?? e;
-  return one ? full(one) : "";
+  if (!one) return "";
+  const oneIso = s ? startISO : endISO;
+  return hasClockTime(oneIso) ? `${full(one)} · ${clock(one)}` : full(one);
 }
