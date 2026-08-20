@@ -1,11 +1,21 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getActor } from "@/lib/actor";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { ProfileWall, type ProfilePost } from "@/components/ProfileWall";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
+import { ProfileEvents, type HostedEventItem } from "@/components/ProfileEvents";
+import { CreateCardFab } from "@/components/CreateCardFab";
 import { publicImageUrl } from "@/lib/storage";
+
+interface EventRow {
+  id: string;
+  title: string | null;
+  event_time: string | null;
+  starts_at: string | null;
+  location: string | null;
+}
 
 interface PostRow {
   id: string;
@@ -22,26 +32,35 @@ function eventTitleOf(e: PostRow["events"]): string | null {
 }
 
 export default async function MyProfilePage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const actor = await getActor();
+  if (!actor) redirect("/login");
+  const { supabase, actorId } = actor;
 
   const admin = createAdminClient();
-  const [{ data: profile }, { data: postRows }, { count: hostedEvents }] = await Promise.all([
+  const [{ data: profile }, { data: postRows }, { data: eventRows }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("kind, display_name, bio, links, avatar_path, verified")
-      .eq("id", user.id)
+      .select("display_name, bio, links, avatar_path, verified")
+      .eq("id", actorId)
       .maybeSingle(),
     supabase
       .from("posts")
       .select("id, image_path, caption, created_at, events(title)")
-      .eq("author_id", user.id)
+      .eq("author_id", actorId)
       .order("created_at", { ascending: false }),
-    admin.from("events").select("id", { count: "exact", head: true }).eq("creator_id", user.id),
+    admin
+      .from("events")
+      .select("id, title, event_time, starts_at, location")
+      .eq("creator_id", actorId),
   ]);
+
+  const hosted: HostedEventItem[] = ((eventRows ?? []) as EventRow[]).map((e) => ({
+    id: e.id,
+    title: e.title ?? "Event",
+    when: e.event_time ?? "",
+    startsAt: e.starts_at ?? null,
+    location: e.location ?? null,
+  }));
 
   const posts: ProfilePost[] = (postRows ?? []).map((p) => {
     const row = p as unknown as PostRow;
@@ -56,24 +75,29 @@ export default async function MyProfilePage() {
 
   const links = (profile?.links ?? {}) as ProfileHeaderData["links"];
   const header: ProfileHeaderData = {
-    name: profile?.display_name || user.email?.split("@")[0] || "You",
-    kind: (profile?.kind as ProfileHeaderData["kind"]) ?? "person",
+    name:
+      profile?.display_name ||
+      actor.activeProfile.username ||
+      actor.userEmail?.split("@")[0] ||
+      "You",
     verified: profile?.verified ?? false,
     bio: profile?.bio ?? null,
     avatarUrl: publicImageUrl(profile?.avatar_path),
     links,
-    hostedEvents: hostedEvents ?? 0,
+    hostedEvents: hosted.length,
     postCount: posts.length,
   };
 
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={user.email} link={{ href: "/profile", label: "Settings" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <ProfileHeader data={header} />
+        <ProfileEvents events={hosted} />
         <ProfileWall posts={posts} isOwner />
       </div>
+      <CreateCardFab mode="post" events={hosted.map((e) => ({ id: e.id, title: e.title }))} />
     </main>
   );
 }

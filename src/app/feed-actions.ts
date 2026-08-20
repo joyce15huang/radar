@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { serverTimeZone } from "@/lib/tz";
 import { parseEvents, nowContext } from "@/lib/parse/schedule";
 import { formatWhen } from "@/lib/localDateTime";
+import { getActor } from "@/lib/actor";
 import type { CardStatus } from "@/lib/types";
 
 /**
@@ -12,17 +12,14 @@ import type { CardStatus } from "@/lib/types";
  * owner; the explicit user_id match is belt-and-suspenders.
  */
 export async function updateCardStatus(id: string, status: CardStatus) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
+  const actor = await getActor();
+  if (!actor) return;
 
-  await supabase
+  await actor.supabase
     .from("cards")
     .update({ status })
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", actor.actorId);
 }
 
 export interface UpdateEventResult {
@@ -51,11 +48,9 @@ export async function updateEventCard(input: {
   location?: string;
   note?: string;
 }): Promise<UpdateEventResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = actor;
 
   const title = input.title.trim();
   const whenText = input.whenText.trim();
@@ -66,7 +61,7 @@ export async function updateEventCard(input: {
     .from("cards")
     .select("content")
     .eq("id", input.id)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .maybeSingle();
   if (readErr) return { ok: false, error: readErr.message };
   if (!existing) return { ok: false, error: "Couldn't find that event." };
@@ -116,7 +111,7 @@ export async function updateEventCard(input: {
     .from("cards")
     .update({ title, content })
     .eq("id", input.id)
-    .eq("user_id", user.id);
+    .eq("user_id", actorId);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/calendar");

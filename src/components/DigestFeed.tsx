@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import type { DigestCardData } from "@/lib/types";
+import type { BusyInterval } from "@/lib/conflicts";
 import { DigestCard, type ResolveStatus } from "./DigestCard";
 import { DigestHeader } from "./DigestHeader";
 import { AllCaughtUp } from "./AllCaughtUp";
@@ -14,9 +15,11 @@ interface DigestFeedProps {
   dateSub: string;
   /** When true, resolutions persist to Supabase (off for mock decks). */
   persist?: boolean;
+  /** Accepted calendar blocks, for the per-card conflict check. */
+  busy?: BusyInterval[];
 }
 
-export function DigestFeed({ initialCards, dateLabel, dateSub, persist = false }: DigestFeedProps) {
+export function DigestFeed({ initialCards, dateLabel, dateSub, persist = false, busy = [] }: DigestFeedProps) {
   const [cards, setCards] = useState<DigestCardData[]>(initialCards);
   const [saved, setSaved] = useState(0);
   const [accepted, setAccepted] = useState(0);
@@ -43,7 +46,7 @@ export function DigestFeed({ initialCards, dateLabel, dateSub, persist = false }
       <div className="space-y-3">
         <AnimatePresence initial={false} mode="popLayout">
           {cards.map((card) => (
-            <DigestCard key={card.id} card={card} onResolve={handleResolve} />
+            <DigestCard key={card.id} card={card} onResolve={handleResolve} busy={busy} />
           ))}
         </AnimatePresence>
       </div>

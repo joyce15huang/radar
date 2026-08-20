@@ -1,23 +1,21 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { ProfileTabs } from "@/components/ProfileTabs";
 import { LibraryWall } from "@/components/LibraryWall";
 import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
+import { getActor } from "@/lib/actor";
 import type { DigestCardData } from "@/lib/types";
 
 export default async function LibraryPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const actor = await getActor();
+  if (!actor) redirect("/login");
+  const { supabase, actorId } = actor;
 
   const { data: rows } = await supabase
     .from("cards")
     .select(CARD_SELECT)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .eq("status", "saved")
     .order("created_at", { ascending: false });
 
@@ -28,7 +26,7 @@ export default async function LibraryPage() {
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 py-8 sm:px-6 sm:py-12">
-        <AccountBar email={user.email} link={{ href: "/profile", label: "Settings" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <header className="mb-5">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">

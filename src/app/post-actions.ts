@@ -1,17 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getActor } from "@/lib/actor";
 
-/** Deletes one of the current user's posts (RLS enforces ownership too). */
+/** Deletes one of the active persona's posts (RLS enforces ownership too). */
 export async function deletePost(id: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
+  const actor = await getActor();
+  if (!actor) return;
 
-  await supabase.from("posts").delete().eq("id", id).eq("author_id", user.id);
+  await actor.supabase.from("posts").delete().eq("id", id).eq("author_id", actor.actorId);
   revalidatePath("/me");
   revalidatePath("/profile");
 }

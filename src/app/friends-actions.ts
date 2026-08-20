@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getActor } from "@/lib/actor";
 import type { FriendActionResult, FriendOption } from "@/lib/friends";
 import { normalizeUsername } from "@/lib/username";
 
@@ -11,17 +12,17 @@ import { normalizeUsername } from "@/lib/username";
  * dropped (can't be @-picked).
  */
 export async function listMyAcceptedFriends(): Promise<FriendOption[]> {
-  const { supabase, user } = await getViewer();
-  if (!user) return [];
+  const { supabase, actorId } = await getViewer();
+  if (!actorId) return [];
 
   const { data: rels } = await supabase
     .from("friendships")
     .select("requester_id, addressee_id")
-    .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+    .or(`requester_id.eq.${actorId},addressee_id.eq.${actorId}`)
     .eq("status", "accepted");
 
   const ids = (rels ?? []).map((r) =>
-    r.requester_id === user.id ? (r.addressee_id as string) : (r.requester_id as string),
+    r.requester_id === actorId ? (r.addressee_id as string) : (r.requester_id as string),
   );
   if (ids.length === 0) return [];
 
@@ -40,12 +41,13 @@ export async function listMyAcceptedFriends(): Promise<FriendOption[]> {
     .sort((a, b) => a.username.localeCompare(b.username));
 }
 
-async function getViewer() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return { supabase, user };
+/** The active persona as the "viewer" for all friendship ops. */
+async function getViewer(): Promise<
+  { supabase: SupabaseClient; actorId: string } | { supabase: null; actorId: null }
+> {
+  const actor = await getActor();
+  if (!actor) return { supabase: null, actorId: null };
+  return { supabase: actor.supabase as unknown as SupabaseClient, actorId: actor.actorId };
 }
 
 /** PostgREST `.or()` filter matching a friendships row between two users, either direction. */
@@ -65,8 +67,8 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
   const raw = rawHandle.trim();
   if (!raw) return { ok: false, error: "Enter a username." };
 
-  const { supabase, user } = await getViewer();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = await getViewer();
+  if (!actorId) return { ok: false, error: "You're not signed in." };
 
   const handle = normalizeUsername(raw);
   const looksLikeEmail = raw.includes("@") && raw.indexOf("@") > 0;
@@ -94,12 +96,12 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
   }
 
   const targetId = target.id as string;
-  if (targetId === user.id) return { ok: false, error: "That's you!" };
+  if (targetId === actorId) return { ok: false, error: "That's you!" };
 
   const { data: existing, error: existErr } = await supabase
     .from("friendships")
     .select("id, requester_id, addressee_id, status")
-    .or(pairFilter(user.id, targetId))
+    .or(pairFilter(actorId, targetId))
     .maybeSingle();
   if (existErr) return { ok: false, error: existErr.message };
 
@@ -108,7 +110,7 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
       return { ok: false, error: "You're already friends." };
     }
     if (existing.status === "pending") {
-      if (existing.requester_id === user.id) {
+      if (existing.requester_id === actorId) {
         return { ok: false, error: "You've already sent them a request." };
       }
       // They already requested the viewer → accepting closes the loop.
@@ -116,7 +118,7 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
         .from("friendships")
         .update({ status: "accepted", responded_at: new Date().toISOString() })
         .eq("id", existing.id)
-        .eq("addressee_id", user.id);
+        .eq("addressee_id", actorId);
       if (error) return { ok: false, error: error.message };
       revalidatePath("/friends");
       return { ok: true, autoAccepted: true };
@@ -125,7 +127,7 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
     const { error } = await supabase
       .from("friendships")
       .update({
-        requester_id: user.id,
+        requester_id: actorId,
         addressee_id: targetId,
         status: "pending",
         responded_at: null,
@@ -137,7 +139,7 @@ export async function sendFriendRequest(rawHandle: string): Promise<FriendAction
   }
 
   const { error } = await supabase.from("friendships").insert({
-    requester_id: user.id,
+    requester_id: actorId,
     addressee_id: targetId,
     status: "pending",
   });
@@ -151,8 +153,8 @@ export async function respondToRequest(
   friendshipId: string,
   accept: boolean,
 ): Promise<FriendActionResult> {
-  const { supabase, user } = await getViewer();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = await getViewer();
+  if (!actorId) return { ok: false, error: "You're not signed in." };
 
   const { error } = await supabase
     .from("friendships")
@@ -161,7 +163,7 @@ export async function respondToRequest(
       responded_at: new Date().toISOString(),
     })
     .eq("id", friendshipId)
-    .eq("addressee_id", user.id)
+    .eq("addressee_id", actorId)
     .eq("status", "pending");
   if (error) return { ok: false, error: error.message };
   revalidatePath("/friends");
@@ -170,14 +172,14 @@ export async function respondToRequest(
 
 /** Cancel a pending request the viewer sent (viewer must be the requester). */
 export async function cancelRequest(friendshipId: string): Promise<FriendActionResult> {
-  const { supabase, user } = await getViewer();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = await getViewer();
+  if (!actorId) return { ok: false, error: "You're not signed in." };
 
   const { error } = await supabase
     .from("friendships")
     .delete()
     .eq("id", friendshipId)
-    .eq("requester_id", user.id)
+    .eq("requester_id", actorId)
     .eq("status", "pending");
   if (error) return { ok: false, error: error.message };
   revalidatePath("/friends");
@@ -186,14 +188,14 @@ export async function cancelRequest(friendshipId: string): Promise<FriendActionR
 
 /** Remove an accepted friendship (either party may do this). */
 export async function removeFriend(friendshipId: string): Promise<FriendActionResult> {
-  const { supabase, user } = await getViewer();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = await getViewer();
+  if (!actorId) return { ok: false, error: "You're not signed in." };
 
   const { error } = await supabase
     .from("friendships")
     .delete()
     .eq("id", friendshipId)
-    .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
+    .or(`requester_id.eq.${actorId},addressee_id.eq.${actorId}`);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/friends");
   return { ok: true };

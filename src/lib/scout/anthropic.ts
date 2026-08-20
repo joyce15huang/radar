@@ -55,6 +55,12 @@ export interface GeneratedCard {
   expires_at?: string | null;
   /** Short human phrase for a fuzzy/seasonal period ("May–August", "Ongoing"). */
   window_label?: string | null;
+  /**
+   * A 1-3 word label of WHAT the thing is, shown on the deck for undated cards
+   * (e.g. "Stargazing", "Live music", "Farmers market", "National park",
+   * "Street fair", "Whale watching"). Concrete, not a category word.
+   */
+  topic?: string | null;
 }
 
 // Lazily construct the client so a missing key doesn't throw at import/build time.
@@ -148,11 +154,12 @@ Each card has a "kind":
 Timing — this is what makes a card useful, so get it exactly right, FROM THE SOURCE ONLY:
 - opens_at = when it STARTS. If the source gives a clock time (e.g. "8pm on August 11"), output the FULL local datetime WITH the city's UTC offset, e.g. "2026-08-11T20:00:00-07:00" (US Pacific in summer). If only a day is given, output the bare date "2026-08-11".
 - expires_at = when it ENDS or the last day to act: a one-evening event's end, a festival's last day, a season's end ("May–August" → the August end date), a lottery/registration deadline.
-- window_label = a short human phrase for a fuzzy or seasonal period when there's no single instant ("May–August", "This weekend only", "Ongoing").
+- window_label = a short human phrase for a fuzzy or seasonal period when there's no single instant ("May–August", "This weekend only", "Ongoing"). When an item has no exact day, prefer a phrase that captures the TIME OF DAY or period it happens ("Evenings", "After midnight", "Weekends", "10am–4pm") if the source implies one.
 - CRITICAL: never invent a date or time — use only what the source supports. If a specific date isn't given but it's clearly seasonal/ongoing, set window_label (and expires_at only if the source states a real end). A wrong time or countdown destroys trust.
 
 Rules:
 - Ground every card in the provided search context. Use a REAL url from the context for action_url; never invent URLs. If no good source exists, set action_url to null.
+- topic: ALWAYS set a 1-3 word label of WHAT the thing is — concrete and specific, not a category word. E.g. "Stargazing", "Live music", "Farmers market", "National park", "Whale watching", "Street fair", "Meteor shower", "Wine tasting". This is shown on undated cards so the user knows what it is at a glance.
 - Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted events. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
 - Keep summaries to 2-3 sentences, factual and low-anxiety. No hype, no clickbait, no fear-mongering.
 - Avoid near-duplicate cards. Titles are punchy and specific (aim under ~70 characters).`,
@@ -181,6 +188,10 @@ Rules:
                     type: "string",
                     description: "2-3 calm sentences. May use **bold** or *italic*.",
                   },
+                  topic: {
+                    type: ["string", "null"],
+                    description: "1-3 word label of WHAT this is (e.g. 'Stargazing', 'Live music', 'Farmers market', 'National park', 'Whale watching', 'Street fair'). Concrete, not a category word.",
+                  },
                   action_label: {
                     type: "string",
                     description: "Short button label, e.g. 'Read more', 'Open lottery', 'View details'.",
@@ -199,10 +210,10 @@ Rules:
                   },
                   window_label: {
                     type: ["string", "null"],
-                    description: "Short phrase for a fuzzy/seasonal period when no single instant applies (e.g. 'May–August', 'Ongoing').",
+                    description: "Short phrase for a fuzzy/seasonal period or time-of-day when no single instant applies (e.g. 'May–August', 'Evenings', '10am–4pm').",
                   },
                 },
-                required: ["kind", "category", "title", "summary", "action_label", "action_url"],
+                required: ["kind", "category", "title", "summary", "action_label", "action_url", "topic"],
               },
             },
           },

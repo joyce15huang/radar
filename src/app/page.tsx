@@ -4,41 +4,63 @@ import { DigestFeed } from "@/components/DigestFeed";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { EmptyDeck } from "@/components/EmptyDeck";
-import { createClient } from "@/lib/supabase/server";
 import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
-import { startOfTodayISO } from "@/lib/time";
+import { startOfTodayISO, APP_TZ } from "@/lib/time";
+import { isPastCard } from "@/lib/calendarSort";
+import { busyFromCard, type BusyInterval } from "@/lib/conflicts";
+import { getActor } from "@/lib/actor";
 import type { DigestCardData } from "@/lib/types";
 
-// PIVOT PHASE 2: the feed reads the user's real `pending` cards from Supabase.
+// PIVOT PHASE 2: the feed reads the active persona's real `pending` cards.
 export default async function Home() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const actor = await getActor();
+  if (!actor) redirect("/login");
+  const { supabase, actorId } = actor;
 
   // Never show a public event whose day has passed, even between nightly runs.
   // Friend/calendar cards have a null prune_at and always pass this filter.
   const startISO = startOfTodayISO();
 
-  const [{ data: rows, error: cardsError }, { data: prefs }] = await Promise.all([
-    supabase
-      .from("cards")
-      .select(CARD_SELECT)
-      .eq("user_id", user.id)
-      .eq("status", "pending")
-      .or(`prune_at.is.null,prune_at.gt.${startISO}`)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("preferences")
-      .select("standing_prompt, weekly_prompt")
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
+  const [{ data: rows, error: cardsError }, { data: prefs }, { data: acceptedRows }] =
+    await Promise.all([
+      supabase
+        .from("cards")
+        .select(CARD_SELECT)
+        .eq("user_id", actorId)
+        .eq("status", "pending")
+        .or(`prune_at.is.null,prune_at.gt.${startISO}`)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("preferences")
+        .select("standing_prompt, weekly_prompt")
+        .eq("user_id", actorId)
+        .maybeSingle(),
+      // The already-accepted calendar — used to flag conflicts on today's cards.
+      supabase
+        .from("cards")
+        .select(CARD_SELECT)
+        .eq("user_id", actorId)
+        .eq("status", "accepted")
+        .in("type", ["social_invite", "calendar_radar", "time_window"]),
+    ]);
 
+  // Busy blocks from the accepted calendar (only those with a concrete time).
+  const busy: BusyInterval[] = (acceptedRows ?? [])
+    .map((r) => rowToCard(r as CardRow))
+    .filter((c): c is DigestCardData => c !== null)
+    .map((c) => busyFromCard(c))
+    .filter((b): b is BusyInterval => b !== null);
+
+  // The DB query drops past *scout* cards by prune_at, but event cards
+  // (invites/schedule/time windows) carry a null prune_at and always pass that
+  // filter. Hide any card whose anchored day has already passed in the app
+  // timezone, so yesterday's events fall off the feed the moment the date rolls
+  // over — no nightly job required.
+  const nowMs = Date.now();
   const cards = (rows ?? [])
     .map((r) => rowToCard(r as CardRow))
-    .filter((c): c is DigestCardData => c !== null);
+    .filter((c): c is DigestCardData => c !== null)
+    .filter((c) => !isPastCard(c, nowMs, APP_TZ));
 
   // Invites always come first; everything else (posts, news, pings, schedule)
   // stays mixed in its existing created_at order. Array.sort is stable, so the
@@ -55,7 +77,7 @@ export default async function Home() {
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={user.email} link={{ href: "/profile", label: "Settings" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
 
         {cardsError ? (
@@ -63,7 +85,7 @@ export default async function Home() {
         ) : cards.length === 0 ? (
           <EmptyDeck hasPrompt={hasPrompt} />
         ) : (
-          <DigestFeed initialCards={cards} dateLabel={dateLabel} dateSub={dateSub} persist />
+          <DigestFeed initialCards={cards} dateLabel={dateLabel} dateSub={dateSub} busy={busy} persist />
         )}
       </div>
     </main>

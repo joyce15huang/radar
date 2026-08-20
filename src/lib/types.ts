@@ -78,6 +78,8 @@ export interface NewsScoutCard extends CardBase {
   summary: string;
   actionLabel: string;
   actionUrl?: string;
+  /** 1-3 word label of what it is ("Stargazing", "Farmers market", …). */
+  topic?: string;
 }
 
 export interface TimeWindowCard extends CardBase {
@@ -99,6 +101,8 @@ export interface TimeWindowCard extends CardBase {
   opensAt?: string;
   /** Fallback human label if no machine date (e.g. "This weekend only"). */
   windowLabel?: string;
+  /** 1-3 word label of what it is ("Stargazing", "Live music", …). */
+  topic?: string;
 }
 
 export interface CalendarRadarCard extends CardBase {

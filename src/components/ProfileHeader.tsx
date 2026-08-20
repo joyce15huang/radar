@@ -1,9 +1,8 @@
-import { Globe, AtSign, BadgeCheck, CalendarCheck2, Building2, Users } from "lucide-react";
+import { Globe, AtSign, BadgeCheck, CalendarCheck2 } from "lucide-react";
 import { initials } from "@/lib/cardTypes";
 
 export interface ProfileHeaderData {
   name: string;
-  kind: "person" | "org" | "group";
   verified: boolean;
   bio: string | null;
   avatarUrl: string | null;
@@ -13,16 +12,14 @@ export interface ProfileHeaderData {
 }
 
 export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
-  const isHost = data.kind === "org" || data.kind === "group";
+  const hasHosted = data.hostedEvents > 0;
 
   return (
     <header className="mb-6">
       <div className="flex items-start gap-4">
-        {/* Avatar (hosts get an accent ring) */}
+        {/* Avatar */}
         <div
-          className={`flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full ${
-            isHost ? "ring-2 ring-offset-2 ring-violet-400 ring-offset-neutral-50 dark:ring-offset-neutral-950" : ""
-          } bg-neutral-900 text-lg font-semibold text-white dark:bg-white dark:text-neutral-900`}
+          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-900 text-lg font-semibold text-white dark:bg-white dark:text-neutral-900"
         >
           {data.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -38,12 +35,6 @@ export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
               {data.name}
             </h1>
             {data.verified && <BadgeCheck className="h-5 w-5 text-sky-500" aria-label="Verified" />}
-            {isHost && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 ring-1 ring-inset ring-violet-200/70 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-400/20">
-                {data.kind === "org" ? <Building2 className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-                {data.kind === "org" ? "Organization" : "Group"}
-              </span>
-            )}
           </div>
 
           {data.bio && (
@@ -69,7 +60,7 @@ export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
 
       {/* Track record */}
       <div className="mt-4 flex gap-5 border-t border-neutral-200/70 pt-3 text-sm dark:border-neutral-800">
-        {isHost && (
+        {hasHosted && (
           <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
             <CalendarCheck2 className="h-4 w-4 text-neutral-400" />
             <span className="font-semibold text-neutral-900 dark:text-neutral-50">{data.hostedEvents}</span>

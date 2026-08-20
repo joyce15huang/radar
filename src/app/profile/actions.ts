@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fillUserDeck } from "@/lib/scout/persistDeck";
+import { getActor } from "@/lib/actor";
 
 export interface SaveState {
   status: "idle" | "saved" | "error";
@@ -57,14 +57,12 @@ export async function savePreferences(
   }
   const standing = promptFromLocations(cities);
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { status: "error", message: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { status: "error", message: "You're not signed in." };
+  const { supabase, actorId } = actor;
 
   const { error } = await supabase.from("preferences").upsert(
-    { user_id: user.id, standing_prompt: standing, locations: cities },
+    { user_id: actorId, standing_prompt: standing, locations: cities },
     { onConflict: "user_id" },
   );
   if (error) return { status: "error", message: error.message };
@@ -72,7 +70,7 @@ export async function savePreferences(
   try {
     const admin = createAdminClient();
     const todayISO = new Date().toISOString().slice(0, 10);
-    const result = await fillUserDeck(admin, user.id, { locations: cities, todayISO });
+    const result = await fillUserDeck(admin, actorId, { locations: cities, todayISO, refresh: true });
 
     revalidatePath("/");
     revalidatePath("/profile");

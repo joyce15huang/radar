@@ -1,7 +1,7 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getActor } from "@/lib/actor";
 import type { Attendee, EventRoster } from "@/lib/roster";
 
 /** Prettify an email local-part: "ada.lovelace" → "Ada Lovelace". */
@@ -28,11 +28,9 @@ function nameFromEmail(email: string): string {
 export async function getEventRoster(eventId: string): Promise<EventRoster | null> {
   if (!eventId) return null;
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const actor = await getActor();
+  if (!actor) return null;
+  const actorId = actor.actorId;
 
   const admin = createAdminClient();
 
@@ -41,7 +39,7 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
     .from("cards")
     .select("id")
     .eq("event_id", eventId)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .limit(1);
   if (!mine || mine.length === 0) return null;
 

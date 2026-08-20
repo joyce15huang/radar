@@ -10,6 +10,7 @@ export interface PoolEvent {
   category: string;
   title: string;
   summary: string;
+  topic: string | null;
   action_label: string;
   action_url: string | null;
   starts_at: string | null;
@@ -49,6 +50,7 @@ export function poolRowFromCard(
     category: card.category,
     title: card.title,
     summary: card.summary,
+    topic: card.topic ?? null,
     action_label: card.action_label,
     action_url: card.action_url,
     starts_at: t.opensAt,

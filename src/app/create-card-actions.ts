@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { serverTimeZone } from "@/lib/tz";
 import { parseEvents, nowContext, type ParsedEvent } from "@/lib/parse/schedule";
 import { formatWhen } from "@/lib/localDateTime";
+import { getActor } from "@/lib/actor";
 
 export interface PreviewResult {
   ok: boolean;
@@ -71,11 +72,9 @@ export async function sendCards(input: {
   location?: string;
   note?: string;
 }): Promise<SendResult> {
-  const supabase = await createClient();
-  const {
-    data: { user: sender },
-  } = await supabase.auth.getUser();
-  if (!sender) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
 
   const emails = Array.from(
     new Set(input.recipients.map((e) => e.trim().toLowerCase()).filter(Boolean)),
@@ -99,7 +98,10 @@ export async function sendCards(input: {
     return { ok: false, error: `No one on the app matched: ${notFound.join(", ")}`, notFound };
   }
 
-  const senderName = nameFromEmail(sender.email ?? "A friend");
+  const senderName =
+    actor.activeProfile.displayName ||
+    actor.activeProfile.username ||
+    nameFromEmail(actor.userEmail ?? "A friend");
 
   if (input.type === "social_ping") {
     const message = (input.message ?? "").trim();
@@ -109,7 +111,7 @@ export async function sendCards(input: {
 
     const rows = recipientIds.map((rid) => ({
       user_id: rid,
-      sender_id: sender.id,
+      sender_id: actorId,
       type: "social_ping",
       title: null,
       content,
@@ -126,7 +128,7 @@ export async function sendCards(input: {
     const { data: event, error: evErr } = await admin
       .from("events")
       .insert({
-        creator_id: sender.id,
+        creator_id: actorId,
         title: eventTitle,
         event_time: eventTime,
         location: input.location?.trim() || null,
@@ -143,7 +145,7 @@ export async function sendCards(input: {
 
     const rows = recipientIds.map((rid) => ({
       user_id: rid,
-      sender_id: sender.id,
+      sender_id: actorId,
       type: "social_invite",
       title: eventTitle,
       content,
@@ -154,7 +156,7 @@ export async function sendCards(input: {
     if (error) return { ok: false, error: error.message };
   }
 
-  if (recipientIds.includes(sender.id)) revalidatePath("/");
+  if (recipientIds.includes(actorId)) revalidatePath("/");
   return { ok: true, sent: recipientIds.length, notFound };
 }
 
@@ -176,11 +178,9 @@ export async function createPost(input: {
   imagePaths: string[];
   eventId?: string | null;
 }): Promise<CreatePostResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
 
   const paths = (input.imagePaths ?? []).filter(Boolean);
   if (paths.length === 0) return { ok: false, error: "Missing image." };
@@ -189,7 +189,7 @@ export async function createPost(input: {
   const eventId = input.eventId || null;
 
   const { error: postErr } = await admin.from("posts").insert({
-    author_id: user.id,
+    author_id: actorId,
     image_path: paths[0],
     image_paths: paths,
     caption: input.caption?.trim() || null,
@@ -205,7 +205,7 @@ export async function createPost(input: {
       .eq("id", eventId)
       .maybeSingle();
 
-    if (event && event.creator_id === user.id) {
+    if (event && event.creator_id === actorId) {
       const { data: inviteCards } = await admin
         .from("cards")
         .select("user_id")
@@ -214,10 +214,13 @@ export async function createPost(input: {
 
       const attendeeIds = Array.from(
         new Set((inviteCards ?? []).map((c) => c.user_id as string)),
-      ).filter((id) => id !== user.id);
+      ).filter((id) => id !== actorId);
 
       if (attendeeIds.length > 0) {
-        const senderName = nameFromEmail(user.email ?? "A friend");
+        const senderName =
+          actor.activeProfile.displayName ||
+          actor.activeProfile.username ||
+          nameFromEmail(actor.userEmail ?? "A friend");
         const content: Record<string, unknown> = {
           senderName,
           imagePaths: paths,
@@ -228,7 +231,7 @@ export async function createPost(input: {
 
         const rows = attendeeIds.map((rid) => ({
           user_id: rid,
-          sender_id: user.id,
+          sender_id: actorId,
           type: "social_post",
           title: null,
           content,

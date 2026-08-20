@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { FriendsClient } from "@/components/FriendsClient";
+import { getActor } from "@/lib/actor";
 import type { FriendEntry } from "@/lib/friends";
 
 interface FriendshipRow {
@@ -26,16 +26,14 @@ function displayName(p: ProfileLite | undefined): string {
 }
 
 export default async function FriendsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const actor = await getActor();
+  if (!actor) redirect("/login");
+  const { supabase, actorId } = actor;
 
   const { data: relRows, error } = await supabase
     .from("friendships")
     .select("id, requester_id, addressee_id, status, created_at")
-    .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+    .or(`requester_id.eq.${actorId},addressee_id.eq.${actorId}`)
     .in("status", ["pending", "accepted"])
     .order("created_at", { ascending: false });
 
@@ -43,7 +41,7 @@ export default async function FriendsPage() {
 
   // Resolve each "other" user's username + email in one query.
   const otherIds = Array.from(
-    new Set(rels.map((r) => (r.requester_id === user.id ? r.addressee_id : r.requester_id))),
+    new Set(rels.map((r) => (r.requester_id === actorId ? r.addressee_id : r.requester_id))),
   );
   const profileById = new Map<string, ProfileLite>();
   if (otherIds.length > 0) {
@@ -60,7 +58,7 @@ export default async function FriendsPage() {
   }
 
   const entryFor = (r: FriendshipRow): FriendEntry => {
-    const otherId = r.requester_id === user.id ? r.addressee_id : r.requester_id;
+    const otherId = r.requester_id === actorId ? r.addressee_id : r.requester_id;
     const p = profileById.get(otherId);
     return {
       friendshipId: r.id,
@@ -76,14 +74,14 @@ export default async function FriendsPage() {
   const outgoing: FriendEntry[] = [];
   for (const r of rels) {
     if (r.status === "accepted") friends.push(entryFor(r));
-    else if (r.requester_id === user.id) outgoing.push(entryFor(r));
+    else if (r.requester_id === actorId) outgoing.push(entryFor(r));
     else incoming.push(entryFor(r));
   }
 
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={user.email} link={{ href: "/profile", label: "Settings" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <header className="mb-5">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">

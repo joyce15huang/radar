@@ -1,26 +1,25 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { serverTimeZone } from "@/lib/tz";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { CalendarView } from "@/components/CalendarView";
+import { EventFormFab } from "@/components/EventFormFab";
 import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
 import { startKey, isPastCard } from "@/lib/calendarSort";
+import { getActor } from "@/lib/actor";
 import type { DigestCardData } from "@/lib/types";
 
 export default async function CalendarPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  const actor = await getActor();
+  if (!actor) redirect("/login");
+  const { supabase, actorId } = actor;
 
   const tz = await serverTimeZone();
 
   const { data: rows } = await supabase
     .from("cards")
     .select(CARD_SELECT)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .eq("status", "accepted")
     .in("type", ["social_invite", "calendar_radar", "time_window"])
     .order("created_at", { ascending: true });
@@ -45,7 +44,7 @@ export default async function CalendarPage() {
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={user.email} link={{ href: "/profile", label: "Settings" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <header className="mb-5">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
@@ -56,8 +55,9 @@ export default async function CalendarPage() {
             windows you&rsquo;re tracking &mdash; soonest first.
           </p>
         </header>
-        <CalendarView upcoming={upcoming} past={past} tz={tz} viewerId={user.id} />
+        <CalendarView upcoming={upcoming} past={past} tz={tz} viewerId={actorId} />
       </div>
+      <EventFormFab />
     </main>
   );
 }

@@ -10,20 +10,13 @@ export interface ProfileInitial {
   bio: string;
   website: string;
   instagram: string;
-  twitter: string;
 }
 
 const inputCls =
   "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-neutral-600 dark:focus:ring-neutral-700";
 
-/** The org/group public-profile fields (shown only for org/group account kinds). */
-export function ProfileForm({
-  initial,
-  kind,
-}: {
-  initial: ProfileInitial;
-  kind: "org" | "group";
-}) {
+/** Public-profile fields (display name, bio, website, Instagram). */
+export function ProfileForm({ initial }: { initial: ProfileInitial }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -38,11 +31,9 @@ export function ProfileForm({
     try {
       const res = await saveProfile({
         displayName: String(fd.get("displayName") ?? ""),
-        kind,
         bio: String(fd.get("bio") ?? ""),
         website: String(fd.get("website") ?? ""),
         instagram: String(fd.get("instagram") ?? ""),
-        twitter: String(fd.get("twitter") ?? ""),
       });
       if (!res.ok) throw new Error(res.error ?? "Couldn't save.");
       setSaved(true);
@@ -64,10 +55,9 @@ export function ProfileForm({
         <textarea name="bio" rows={2} defaultValue={initial.bio} placeholder="Weekly social events for SF newcomers. All welcome." className={`${inputCls} resize-y`} />
       </Field>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Website"><input name="website" defaultValue={initial.website} placeholder="sfsocial.club" className={inputCls} /></Field>
         <Field label="Instagram"><input name="instagram" defaultValue={initial.instagram} placeholder="@handle" className={inputCls} /></Field>
-        <Field label="Twitter / X"><input name="twitter" defaultValue={initial.twitter} placeholder="@handle" className={inputCls} /></Field>
       </div>
 
       <div className="flex items-center gap-3">

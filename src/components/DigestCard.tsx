@@ -9,36 +9,27 @@ import {
   MapPin,
   Link2,
   Bookmark,
-  Hourglass,
   CalendarDays,
   CalendarPlus,
+  ShieldCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { CATEGORIES } from "@/lib/categories";
 import { CARD_TYPES, initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
-import { windowStatus, type WindowUrgency } from "@/lib/timeWindow";
 import { eventDateLabel } from "@/lib/dateLabel";
 import { addScoutedToCalendar } from "@/app/deck-actions";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
+import {
+  busyFromCard,
+  findConflict,
+  formatBusyRange,
+  DEFAULT_BLOCK_MIN,
+  type BusyInterval,
+} from "@/lib/conflicts";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { PhotoGallery } from "./PhotoGallery";
 import { RichText } from "./RichText";
-
-/** Urgency → text color for the inline countdown next to the date. */
-function urgencyText(urgency: WindowUrgency): string {
-  switch (urgency) {
-    case "urgent":
-      return "text-red-600 dark:text-red-400";
-    case "soon":
-      return "text-amber-600 dark:text-amber-400";
-    case "upcoming":
-      return "text-sky-600 dark:text-sky-400";
-    case "closed":
-      return "text-neutral-400 dark:text-neutral-500";
-    default:
-      return "text-neutral-500 dark:text-neutral-400";
-  }
-}
 
 /** Terminal statuses a card can resolve to from the deck. */
 export type ResolveStatus = Extract<CardStatus, "saved" | "dismissed" | "accepted">;
@@ -46,11 +37,13 @@ export type ResolveStatus = Extract<CardStatus, "saved" | "dismissed" | "accepte
 interface DigestCardProps {
   card: DigestCardData;
   onResolve: (id: string, status: ResolveStatus) => void;
+  /** The user's accepted calendar blocks, for the conflict check. */
+  busy?: BusyInterval[];
 }
 
 /* --------------------------------- shell ---------------------------------- */
 
-export function DigestCard({ card, onResolve }: DigestCardProps) {
+export function DigestCard({ card, onResolve, busy = [] }: DigestCardProps) {
   const rail =
     card.type === "news_scout"
       ? (CATEGORIES[card.category]?.railClass ?? "bg-neutral-300 dark:bg-neutral-700")
@@ -76,6 +69,7 @@ export function DigestCard({ card, onResolve }: DigestCardProps) {
       <div className="p-5 pl-6">
         <CardHeader card={card} onResolve={onResolve} />
         <CardBody card={card} />
+        <ConflictLine card={card} busy={busy} />
         <div className="mt-4">
           <CardActions card={card} onResolve={onResolve} />
         </div>
@@ -128,43 +122,129 @@ function SaveButton({ onSave }: { onSave: () => void }) {
   );
 }
 
+const TIME_PHRASES: [string, string][] = [
+  ["after midnight", "After midnight"],
+  ["pre-dawn", "Pre-dawn"],
+  ["before dawn", "Before dawn"],
+  ["at sunset", "Sunset"],
+  ["sunset", "Sunset"],
+  ["at sunrise", "Sunrise"],
+  ["sunrise", "Sunrise"],
+  ["at dusk", "Dusk"],
+  ["golden hour", "Golden hour"],
+  ["overnight", "Overnight"],
+  ["all day", "All day"],
+  ["this weekend", "This weekend"],
+  ["weekends", "Weekends"],
+  ["weekend", "This weekend"],
+  ["evenings", "Evenings"],
+  ["evening", "Evening"],
+  ["mornings", "Mornings"],
+  ["morning", "Morning"],
+  ["afternoons", "Afternoons"],
+  ["afternoon", "Afternoon"],
+  ["nightly", "Nightly"],
+  ["nights", "Nights"],
+];
+
 /**
- * The date shown on top of a scouted card, with the time_window countdown on the
- * same line (e.g. "Tue, Aug 12 · Closes in 2 days"). A dateless gem shows a soft
- * "Ongoing" pill instead.
+ * Best-effort, zero-cost guess of a time-of-day or time RANGE from free text,
+ * used to enrich an undated card's top line (e.g. "10am–4pm", "8pm", "Evenings").
+ * Returns "" if nothing confident.
+ */
+function guessTimeHint(text: string): string {
+  const t = text.toLowerCase();
+
+  // A range like "10am-4pm" / "7–9 pm".
+  let m = t.match(/\b(\d{1,2}(?::\d{2})?)\s?(am|pm)?\s?(?:–|—|-|to)\s?(\d{1,2}(?::\d{2})?)\s?(am|pm)\b/);
+  if (m) {
+    const clean = (n: string, ap?: string) => `${n}${ap ?? ""}`.replace(/:00/g, "");
+    return `${clean(m[1], m[2] ?? m[4])}–${clean(m[3], m[4])}`;
+  }
+
+  // A single time like "8pm" / "8:30 pm".
+  m = t.match(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b/);
+  if (m) {
+    const min = m[2] && m[2] !== "00" ? `:${m[2]}` : "";
+    return `${m[1]}${min}${m[3]}`;
+  }
+
+  for (const [needle, label] of TIME_PHRASES) if (t.includes(needle)) return label;
+  return "";
+}
+
+/**
+ * The top-of-card time line for a scouted card. ONE clean time/date, shown once:
+ * a recurring window label ("Wednesdays, 7–10:30pm"), else the concrete date,
+ * else a best-effort guess from the text. No topic tag, no countdown.
  */
 function DateLine({
   card,
 }: {
   card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
 }) {
-  const dateText =
-    card.type === "time_window" ? eventDateLabel(card.opensAt, card.expiresAt) : "";
-  const w = card.type === "time_window" ? windowStatus(card) : null;
-  const hasCountdown = Boolean(w && w.label);
-  const gemFallback = card.type === "time_window" ? (card.windowLabel ?? "") : "";
-  const pill = dateText || (hasCountdown ? "" : gemFallback || "Ongoing");
+  const isWindow = card.type === "time_window";
+  const windowLabel = isWindow ? card.windowLabel?.trim() ?? "" : "";
+  const dateText = isWindow ? eventDateLabel(card.opensAt, card.expiresAt) : "";
+
+  let when = windowLabel || dateText;
+  if (!when) {
+    const g = guessDateTime(`${card.title}. ${card.summary}`);
+    when = g ? formatGuess(g) : guessTimeHint(card.summary);
+  }
+  if (!when) return null;
 
   return (
-    <span className="inline-flex items-center gap-2 text-xs font-medium">
-      {pill && (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-700 ring-1 ring-inset ring-neutral-200/70 dark:bg-neutral-800 dark:text-neutral-200 dark:ring-neutral-700/70">
-          <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
-          {pill}
-        </span>
-      )}
-      {hasCountdown && w && (
-        <span className={`inline-flex items-center gap-1 ${urgencyText(w.urgency)}`}>
-          {pill && (
-            <span aria-hidden className="text-neutral-300 dark:text-neutral-600">
-              ·
-            </span>
-          )}
-          <Hourglass className="h-3.5 w-3.5" strokeWidth={2} />
-          {w.label}
-        </span>
-      )}
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 ring-1 ring-inset ring-neutral-200/70 dark:bg-neutral-800 dark:text-neutral-200 dark:ring-neutral-700/70">
+      <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
+      {when}
     </span>
+  );
+}
+
+/** Resolve the pending card's own busy interval (needs a concrete clock time). */
+function selfInterval(
+  card: DigestCardData,
+  tz: string,
+): { startMs: number; endMs: number } | null {
+  const b = busyFromCard(card);
+  if (b) return { startMs: b.startMs, endMs: b.endMs };
+  if (card.type === "news_scout") {
+    const g = guessDateTime(`${card.title}. ${card.summary}`);
+    if (g && g.time) {
+      const iso = isoFromLocal(g.date, g.time, tz);
+      const s = iso ? Date.parse(iso) : NaN;
+      if (!Number.isNaN(s)) return { startMs: s, endMs: s + DEFAULT_BLOCK_MIN * 60_000 };
+    }
+  }
+  return null;
+}
+
+/**
+ * "No conflict" / "Conflict with <event> · <time>" for a timed Today card,
+ * checked against the calendar the user has already accepted. Renders nothing
+ * for cards with no concrete clock time (nothing to compare against).
+ */
+function ConflictLine({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
+  const tz = clientTimeZone();
+  const self = selfInterval(card, tz);
+  if (!self) return null;
+
+  const hit = findConflict(self.startMs, self.endMs, busy);
+  return (
+    <div className="mt-3">
+      {hit ? (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20">
+          <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
+          Conflict with {hit.title} · {formatBusyRange(hit, tz)}
+        </span>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20">
+          <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2} />
+          No conflict
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -175,7 +255,7 @@ function CardHeader({
   card: DigestCardData;
   onResolve: (id: string, status: ResolveStatus) => void;
 }) {
-  // Scouted cards: date on top-left, nothing on the right (not savable).
+  // Scouted cards: date/topic on top-left, nothing on the right (not savable).
   if (card.type === "news_scout" || card.type === "time_window") {
     return (
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -523,6 +603,28 @@ function guessDateTime(text: string): DTValue | null {
 
   const date = `${year}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return { date, time };
+}
+
+/** Format a guessed {date,time} for display (no weekday — it's a guess, and
+ *  dropping it keeps SSR/client output identical). "Aug 11" / "Aug 11 · 8:00 PM". */
+function formatGuess(g: DTValue): string {
+  const [y, mo, d] = g.date.split("-").map(Number);
+  if (!y || !mo || !d) return "";
+  const dateObj = new Date(Date.UTC(y, mo - 1, d, 12));
+  const datePart = dateObj.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+  });
+  if (!g.time) return datePart;
+  const [hh, mm] = g.time.split(":").map(Number);
+  const timeObj = new Date(Date.UTC(2000, 0, 1, hh || 0, mm || 0));
+  const timePart = timeObj.toLocaleTimeString("en-US", {
+    timeZone: "UTC",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${datePart} · ${timePart}`;
 }
 
 /** The picker's initial value: structured scout date → text guess → today. */

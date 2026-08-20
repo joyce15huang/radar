@@ -35,6 +35,13 @@ export interface FillOpts {
   cap?: number;
   /** "Spawn more": add exactly this many beyond whatever is already there. */
   extra?: number;
+  /**
+   * Explicit user-triggered refresh ("Save & refresh my deck"). Replaces the
+   * pending public cards with a fresh set for the CURRENT locations, instead of
+   * only topping up to the cap. Safe: if the fresh set comes back empty (no pool
+   * hit and live sourcing failed), the existing deck is left untouched.
+   */
+  refresh?: boolean;
 }
 
 /** Build a `cards` insert row from a pool event. Timing lives both in columns
@@ -52,6 +59,7 @@ function poolEventToCardRow(userId: string, e: PoolEvent) {
     content: {
       category: safeCategory(e.category),
       summary: e.summary,
+      topic: e.topic,
       actionLabel: e.action_label,
       actionUrl: e.action_url,
       ...(isWindow
@@ -85,6 +93,12 @@ export async function fillUserDeck(
   const locations = [
     ...new Set((opts.locations ?? []).map((s) => s.trim()).filter(Boolean)),
   ];
+
+  // Explicit "refresh": rebuild the public deck for the current locations rather
+  // than merely topping up. Kept out of the gap-fill path below on purpose.
+  if (opts.refresh) {
+    return refreshPublicDeck(admin, userId, locations, opts.todayISO, cap, startISO, nowMs);
+  }
 
   // 1. Prune past pending public cards. Nulls (legacy / friend cards) untouched.
   const { data: prunedRows, error: pruneErr } = await admin
@@ -148,4 +162,96 @@ export async function fillUserDeck(
   const { error } = await admin.from("cards").insert(rows);
   if (error) return { filled: 0, kept, pruned, cap, error: error.message };
   return { filled: rows.length, kept, pruned, cap };
+}
+
+/**
+ * Rebuild the public portion of the deck for the CURRENT locations. Used when the
+ * user explicitly saves preferences ("Save & refresh my deck") — otherwise a full
+ * deck means `need === 0` and the change appears to do nothing, which is exactly
+ * the "refresh doesn't work" symptom.
+ *
+ * Order matters for safety: we build the fresh set in memory FIRST, and only
+ * delete the old pending public cards once we actually have replacements. If the
+ * pool is empty and live sourcing fails (e.g. no API key), the old deck is left
+ * intact rather than wiped to nothing.
+ *
+ * Dismissed/saved/accepted cards (and all friend/calendar cards) are never
+ * touched, and their dedup_keys still suppress re-showing — only the pending
+ * public cards are swapped.
+ */
+async function refreshPublicDeck(
+  admin: SupabaseClient,
+  userId: string,
+  locations: string[],
+  todayISO: string,
+  cap: number,
+  startISO: string,
+  nowMs: number,
+): Promise<FillResult> {
+  // What's on the deck right now (kept if we can't produce a fresh set).
+  const { data: currentRows } = await admin
+    .from("cards")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .in("type", PUBLIC_TYPES);
+  const currentCount = currentRows?.length ?? 0;
+
+  if (locations.length === 0) return { filled: 0, kept: currentCount, pruned: 0, cap };
+
+  // Suppress everything the user has EVER held EXCEPT the pending public cards we
+  // are about to replace — so dismissed items stay gone, but a newly-added city
+  // can still surface its own cards.
+  const { data: held } = await admin
+    .from("cards")
+    .select("dedup_key, status, type")
+    .eq("user_id", userId)
+    .not("dedup_key", "is", null);
+  const suppress = new Set<string>();
+  for (const r of held ?? []) {
+    const row = r as { dedup_key: string | null; status: string; type: string };
+    if (!row.dedup_key) continue;
+    const isPendingPublic = row.status === "pending" && PUBLIC_TYPES.includes(row.type);
+    if (!isPendingPublic) suppress.add(row.dedup_key);
+  }
+
+  // Build the fresh set: shared pool first, then live per location for the gap.
+  const picked: PoolEvent[] = [];
+  for (const e of await drawFromPool(admin, locations, suppress, startISO, cap)) {
+    picked.push(e);
+    suppress.add(e.dedup_key);
+  }
+  for (const loc of locations) {
+    if (picked.length >= cap) break;
+    let gen: GeneratedCard[] = [];
+    try {
+      gen = await generateDeck(loc, todayISO, "daily");
+    } catch {
+      continue;
+    }
+    await upsertPoolEvents(admin, loc, gen, nowMs);
+    for (const e of await drawFromPool(admin, [loc], suppress, startISO, cap - picked.length)) {
+      picked.push(e);
+      suppress.add(e.dedup_key);
+    }
+  }
+
+  // Nothing to show → don't wipe the existing deck.
+  if (picked.length === 0) return { filled: 0, kept: currentCount, pruned: 0, cap };
+
+  // Swap in the fresh set: drop old pending public cards, then insert.
+  const { data: prunedRows, error: delErr } = await admin
+    .from("cards")
+    .delete()
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .in("type", PUBLIC_TYPES)
+    .select("id");
+  if (delErr) return { filled: 0, kept: currentCount, pruned: 0, cap, error: delErr.message };
+  const pruned = prunedRows?.length ?? 0;
+
+  const rows = picked.slice(0, cap).map((e) => poolEventToCardRow(userId, e));
+  const { error } = await admin.from("cards").insert(rows);
+  if (error) return { filled: 0, kept: 0, pruned, cap, error: error.message };
+  return { filled: rows.length, kept: 0, pruned, cap };
 }

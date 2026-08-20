@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fillUserDeck } from "@/lib/scout/persistDeck";
 import { serverTimeZone } from "@/lib/tz";
 import { formatWhen } from "@/lib/localDateTime";
+import { getActor } from "@/lib/actor";
 
 export interface GenState {
   status: "idle" | "done" | "error";
@@ -20,16 +20,14 @@ export interface GenState {
  * the gap (~15-25s in that case).
  */
 async function runFill(extra?: number): Promise<GenState> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { status: "error", message: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { status: "error", message: "You're not signed in." };
+  const { supabase, actorId } = actor;
 
   const { data: prefs } = await supabase
     .from("preferences")
     .select("standing_prompt, locations")
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .maybeSingle();
 
   const locs = (((prefs?.locations as string[] | null) ?? []) as string[])
@@ -47,7 +45,7 @@ async function runFill(extra?: number): Promise<GenState> {
 
   try {
     const admin = createAdminClient();
-    const r = await fillUserDeck(admin, user.id, {
+    const r = await fillUserDeck(admin, actorId, {
       locations,
       todayISO: new Date().toISOString().slice(0, 10),
       ...(extra ? { extra } : {}),
@@ -92,18 +90,16 @@ export async function addScoutedToCalendar(input: {
   startsAt: string;
   hasTime: boolean;
 }): Promise<AddToCalResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = actor;
   if (!input.startsAt) return { ok: false, error: "Pick a date." };
 
   const { data: card, error: readErr } = await supabase
     .from("cards")
     .select("id, type, title, content")
     .eq("id", input.id)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .maybeSingle();
   if (readErr) return { ok: false, error: readErr.message };
   if (!card) return { ok: false, error: "Couldn't find that card." };
@@ -132,7 +128,7 @@ export async function addScoutedToCalendar(input: {
       content,
     })
     .eq("id", input.id)
-    .eq("user_id", user.id);
+    .eq("user_id", actorId);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/");

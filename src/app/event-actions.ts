@@ -1,12 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverTimeZone } from "@/lib/tz";
 import { parseEvents, nowContext } from "@/lib/parse/schedule";
 import { normalizeUsername } from "@/lib/username";
 import { formatWhen } from "@/lib/localDateTime";
+import { getActor } from "@/lib/actor";
 
 const EVENT_COLS =
   "id, creator_id, title, event_time, location, note, source_url, summary, category, starts_at, expires_at, opens_at, allow_reinvite";
@@ -146,11 +146,9 @@ export async function inviteToEvent(input: {
   allowReinvite?: boolean;
   note?: string;
 }): Promise<InviteResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
 
   const admin = createAdminClient();
   const { ids: recipientIds, notFound } = await resolveRecipients(admin, input.recipients);
@@ -161,14 +159,14 @@ export async function inviteToEvent(input: {
     const { data } = await admin.from("events").select(EVENT_COLS).eq("id", input.eventId).maybeSingle();
     event = (data as EventRow) ?? null;
     if (!event) return { ok: false, error: "That event no longer exists." };
-    if (event.creator_id !== user.id) {
+    if (event.creator_id !== actorId) {
       if (!event.allow_reinvite)
         return { ok: false, error: "The host hasn't allowed guests to invite others." };
       const { data: mine } = await admin
         .from("cards")
         .select("id")
         .eq("event_id", event.id)
-        .eq("user_id", user.id)
+        .eq("user_id", actorId)
         .limit(1);
       if (!mine || mine.length === 0)
         return { ok: false, error: "Only people on the guest list can invite others." };
@@ -179,7 +177,7 @@ export async function inviteToEvent(input: {
       .select("id, type, title, content, event_id, user_id")
       .eq("id", input.sourceCardId)
       .maybeSingle();
-    if (!card || card.user_id !== user.id)
+    if (!card || card.user_id !== actorId)
       return { ok: false, error: "Couldn't find that item on your calendar." };
 
     if (card.event_id) {
@@ -195,7 +193,7 @@ export async function inviteToEvent(input: {
       const { data: created, error: evErr } = await admin
         .from("events")
         .insert({
-          creator_id: user.id,
+          creator_id: actorId,
           title,
           event_time: eventTime,
           location: c.location ?? null,
@@ -214,13 +212,13 @@ export async function inviteToEvent(input: {
       event = created as EventRow;
 
       // Convert the source card into the host's (editable) event copy.
-      const hostName = await profileName(admin, user.id);
+      const hostName = await profileName(admin, actorId);
       const hostContent = buildInviteContent({ event, senderName: hostName, hostName });
       await admin
         .from("cards")
         .update({ type: "social_invite", title, content: hostContent, status: "accepted", event_id: event.id })
         .eq("id", card.id);
-    } else if (event.creator_id === user.id && typeof input.allowReinvite === "boolean") {
+    } else if (event.creator_id === actorId && typeof input.allowReinvite === "boolean") {
       await admin.from("events").update({ allow_reinvite: input.allowReinvite }).eq("id", event.id);
       event.allow_reinvite = input.allowReinvite;
     }
@@ -242,16 +240,16 @@ export async function inviteToEvent(input: {
   const already = new Set((existing ?? []).map((r) => r.user_id as string));
   const targets = recipientIds.filter((id) => id !== event!.creator_id && !already.has(id));
 
-  const inviterName = await profileName(admin, user.id);
+  const inviterName = await profileName(admin, actorId);
   const hostName =
-    event.creator_id === user.id ? inviterName : await profileName(admin, event.creator_id);
+    event.creator_id === actorId ? inviterName : await profileName(admin, event.creator_id);
   const content = buildInviteContent({ event, senderName: inviterName, hostName });
   if (input.note?.trim()) content.note = input.note.trim();
 
   if (targets.length > 0) {
     const rows = targets.map((rid) => ({
       user_id: rid,
-      sender_id: user.id,
+      sender_id: actorId,
       type: "social_invite",
       title: event!.title,
       content,
@@ -288,11 +286,9 @@ export async function updateHostEvent(input: {
   location?: string;
   note?: string;
 }): Promise<UpdateHostResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
 
   const title = input.title.trim();
   const whenText = input.whenText.trim();
@@ -303,7 +299,7 @@ export async function updateHostEvent(input: {
   const { data: eventData } = await admin.from("events").select(EVENT_COLS).eq("id", input.eventId).maybeSingle();
   const event = (eventData as EventRow) ?? null;
   if (!event) return { ok: false, error: "That event no longer exists." };
-  if (event.creator_id !== user.id) return { ok: false, error: "Only the host can edit this event." };
+  if (event.creator_id !== actorId) return { ok: false, error: "Only the host can edit this event." };
 
   const tz = await serverTimeZone();
   let when = whenText;
@@ -331,7 +327,7 @@ export async function updateHostEvent(input: {
     .update({ title, event_time: when, starts_at: startsAt, location: loc, note })
     .eq("id", input.eventId);
 
-  const hostName = await profileName(admin, user.id);
+  const hostName = await profileName(admin, actorId);
 
   // Silent in-place sync of every attendee's card.
   const { data: cards } = await admin.from("cards").select("id, user_id, content").eq("event_id", input.eventId);
@@ -351,7 +347,7 @@ export async function updateHostEvent(input: {
   // repeated edits don't stack.
   const guestIds = (cards ?? [])
     .map((c) => c.user_id as string)
-    .filter((id) => id !== user.id);
+    .filter((id) => id !== actorId);
   await admin
     .from("cards")
     .delete()
@@ -369,7 +365,7 @@ export async function updateHostEvent(input: {
       if (loc) content.location = loc;
       return {
         user_id: rid,
-        sender_id: user.id,
+        sender_id: actorId,
         type: "event_update",
         title,
         content,
@@ -396,16 +392,14 @@ export async function toggleReinvite(input: {
   eventId: string;
   allow: boolean;
 }): Promise<ToggleReinviteResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
 
   const admin = createAdminClient();
   const { data: event } = await admin.from("events").select("id, creator_id").eq("id", input.eventId).maybeSingle();
   if (!event) return { ok: false, error: "That event no longer exists." };
-  if ((event.creator_id as string) !== user.id)
+  if ((event.creator_id as string) !== actorId)
     return { ok: false, error: "Only the host can change this." };
 
   await admin.from("events").update({ allow_reinvite: input.allow }).eq("id", input.eventId);

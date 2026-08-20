@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { serverTimeZone } from "@/lib/tz";
 import { parseEvents, nowContext, type ParsedEvent } from "@/lib/parse/schedule";
 import { formatWhen } from "@/lib/localDateTime";
+import { getActor } from "@/lib/actor";
 
 export interface ParseScheduleResult {
   ok: boolean;
@@ -58,11 +59,9 @@ export interface ConfirmScheduleResult {
 export async function confirmSchedule(
   items: ConfirmScheduleItem[],
 ): Promise<ConfirmScheduleResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You're not signed in." };
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = actor;
 
   const clean = (items ?? []).filter((i) => i.title?.trim() && i.startsAt);
   if (clean.length === 0) return { ok: false, error: "Nothing to add." };
@@ -74,7 +73,7 @@ export async function confirmSchedule(
     if (it.location?.trim()) content.location = it.location.trim();
     if (it.note?.trim()) content.details = it.note.trim();
     return {
-      user_id: user.id,
+      user_id: actorId,
       sender_id: null,
       type: "calendar_radar",
       title: it.title.trim(),
