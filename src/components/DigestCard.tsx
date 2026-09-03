@@ -11,20 +11,19 @@ import {
   Bookmark,
   CalendarDays,
   CalendarPlus,
-  ShieldCheck,
-  AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import { CATEGORIES } from "@/lib/categories";
 import { CARD_TYPES, initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
 import { eventDateLabel } from "@/lib/dateLabel";
 import { addScoutedToCalendar } from "@/app/deck-actions";
+import { setFeePaid } from "@/app/event-actions";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
 import {
   busyFromCard,
   findConflict,
   formatBusyRange,
-  DEFAULT_BLOCK_MIN,
   type BusyInterval,
 } from "@/lib/conflicts";
 import { DateTimeField, type DTValue } from "./DateTimeField";
@@ -68,8 +67,7 @@ export function DigestCard({ card, onResolve, busy = [] }: DigestCardProps) {
       <span className={`absolute inset-y-0 left-0 w-1 ${rail}`} aria-hidden />
       <div className="p-5 pl-6">
         <CardHeader card={card} onResolve={onResolve} />
-        <CardBody card={card} />
-        <ConflictLine card={card} busy={busy} />
+        <CardBody card={card} busy={busy} />
         <div className="mt-4">
           <CardActions card={card} onResolve={onResolve} />
         </div>
@@ -202,50 +200,24 @@ function DateLine({
   );
 }
 
-/** Resolve the pending card's own busy interval (needs a concrete clock time). */
-function selfInterval(
-  card: DigestCardData,
-  tz: string,
-): { startMs: number; endMs: number } | null {
-  const b = busyFromCard(card);
-  if (b) return { startMs: b.startMs, endMs: b.endMs };
-  if (card.type === "news_scout") {
-    const g = guessDateTime(`${card.title}. ${card.summary}`);
-    if (g && g.time) {
-      const iso = isoFromLocal(g.date, g.time, tz);
-      const s = iso ? Date.parse(iso) : NaN;
-      if (!Number.isNaN(s)) return { startMs: s, endMs: s + DEFAULT_BLOCK_MIN * 60_000 };
-    }
-  }
-  return null;
-}
-
 /**
- * "No conflict" / "Conflict with <event> · <time>" for a timed Today card,
- * checked against the calendar the user has already accepted. Renders nothing
- * for cards with no concrete clock time (nothing to compare against).
+ * Conflict status for a Today card as plain text — "No conflict" or
+ * "Conflict with <event> · <time>" — checked against the calendar the user has
+ * already accepted. Null unless the card carries a concrete, explicit clock
+ * time via a real start field (never a time guessed from prose), so vague or
+ * recurring items like "After midnight" / "daily" never flag a conflict.
+ * Shown inline on the event's time line (see CardBody), not as a separate row.
  */
-function ConflictLine({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
-  const tz = clientTimeZone();
-  const self = selfInterval(card, tz);
+function conflictMeta(
+  card: DigestCardData,
+  busy: BusyInterval[],
+  tz: string,
+): { text: string; conflict: boolean } | null {
+  const self = busyFromCard(card);
   if (!self) return null;
-
   const hit = findConflict(self.startMs, self.endMs, busy);
-  return (
-    <div className="mt-3">
-      {hit ? (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20">
-          <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
-          Conflict with {hit.title} · {formatBusyRange(hit, tz)}
-        </span>
-      ) : (
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20">
-          <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2} />
-          No conflict
-        </span>
-      )}
-    </div>
-  );
+  if (hit) return { text: `Conflict with ${hit.title} · ${formatBusyRange(hit, tz)}`, conflict: true };
+  return { text: "No conflict", conflict: false };
 }
 
 function CardHeader({
@@ -303,7 +275,7 @@ function CardHeader({
 
 /* --------------------------------- body ----------------------------------- */
 
-function CardBody({ card }: { card: DigestCardData }) {
+function CardBody({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
   switch (card.type) {
     case "news_scout":
       return (
@@ -374,14 +346,30 @@ function CardBody({ card }: { card: DigestCardData }) {
         </>
       );
 
-    case "social_invite":
+    case "social_invite": {
+      const tz = clientTimeZone();
+      const conflict = conflictMeta(card, busy, tz);
       return (
         <>
           <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
             {card.eventTitle}
           </h2>
           <div className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
-            <p className="font-medium text-neutral-700 dark:text-neutral-200">{card.eventTime}</p>
+            <p className="font-medium text-neutral-700 dark:text-neutral-200">
+              {card.eventTime}
+              {conflict && (
+                <span
+                  className={
+                    conflict.conflict
+                      ? "font-normal text-amber-600 dark:text-amber-400"
+                      : "font-normal text-neutral-400 dark:text-neutral-500"
+                  }
+                >
+                  {" · "}
+                  {conflict.text}
+                </span>
+              )}
+            </p>
             {card.location && (
               <p className="flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5 text-neutral-400" />
@@ -401,8 +389,10 @@ function CardBody({ card }: { card: DigestCardData }) {
               </a>
             )}
           </div>
+          <FeeRow card={card} />
         </>
       );
+    }
 
     case "calendar_radar":
       return (
@@ -470,6 +460,43 @@ function CardBody({ card }: { card: DigestCardData }) {
           )}
         </>
       );
+
+    case "time_poll":
+      return (
+        <>
+          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
+            {card.title}
+          </h2>
+          <p className="mt-1 text-[0.925rem] leading-relaxed text-neutral-600 dark:text-neutral-300">
+            <span className="font-medium text-neutral-700 dark:text-neutral-200">{card.senderName}</span> is
+            finding a time
+            {card.optionCount ? ` — ${card.optionCount} option${card.optionCount === 1 ? "" : "s"}` : ""}. Mark
+            when you&rsquo;re free.
+          </p>
+        </>
+      );
+
+    case "broadcast_bundle":
+      return (
+        <>
+          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
+            {card.senderName} — {card.count} events
+          </h2>
+          <ul className="mt-2 space-y-1">
+            {card.titles.slice(0, 4).map((t, i) => (
+              <li key={i} className="flex items-start gap-1.5 text-[0.925rem] text-neutral-600 dark:text-neutral-300">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-neutral-300 dark:bg-neutral-600" />
+                {t}
+              </li>
+            ))}
+            {card.titles.length > 4 && (
+              <li className="text-xs text-neutral-400 dark:text-neutral-500">
+                +{card.titles.length - 4} more
+              </li>
+            )}
+          </ul>
+        </>
+      );
   }
 }
 
@@ -479,6 +506,84 @@ function safeHostname(url: string): string {
   } catch {
     return "link";
   }
+}
+
+/** Integer cents → "$40" / "$16.67". */
+function money(cents: number): string {
+  const dollars = cents / 100;
+  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
+/**
+ * The participation-fee row on an invite: the amount, an optional Pay deep-link,
+ * and a manual "Mark as paid" tap. No real money moves — the tap only records the
+ * attendee's own confirmation (optimistic, reverts on error).
+ */
+function FeeRow({ card }: { card: Extract<DigestCardData, { type: "social_invite" }> }) {
+  const [paid, setPaid] = useState(!!card.feePaid);
+  const [pending, setPending] = useState(false);
+
+  if (!card.fee || card.fee <= 0) return null;
+
+  const venmoHref = card.venmoId
+    ? `https://venmo.com/${card.venmoId}?txn=pay&amount=${(card.fee / 100).toFixed(2)}`
+    : null;
+  const linkHref = card.paymentLink
+    ? /^https?:\/\//i.test(card.paymentLink)
+      ? card.paymentLink
+      : `https://${card.paymentLink}`
+    : null;
+  const payHref = venmoHref ?? linkHref;
+
+  async function toggle() {
+    if (pending) return;
+    const next = !paid;
+    setPaid(next);
+    setPending(true);
+    const res = await setFeePaid(card.id, next);
+    setPending(false);
+    if (!res.ok) setPaid(!next);
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950">
+      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-50">
+        <DollarSign className="h-4 w-4 text-neutral-400" strokeWidth={2} />
+        {money(card.fee)} to join
+      </span>
+      {payHref && (
+        <a
+          href={payHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-medium text-fuchsia-600 hover:underline dark:text-fuchsia-400"
+        >
+          <Link2 className="h-3.5 w-3.5" /> {venmoHref ? "Pay on Venmo" : "Pay"}
+        </a>
+      )}
+      {card.zelleId && (
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">Zelle: {card.zelleId}</span>
+      )}
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={pending}
+        className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition disabled:opacity-60 ${
+          paid
+            ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20"
+            : "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+        }`}
+      >
+        {paid ? (
+          <>
+            <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> Paid
+          </>
+        ) : (
+          "Mark as paid"
+        )}
+      </button>
+    </div>
+  );
 }
 
 /* -------------------------------- actions --------------------------------- */
@@ -801,5 +906,29 @@ function CardActions({
 
     case "social_post":
       return <div className="flex items-center gap-2">{dismiss}</div>;
+
+    case "time_poll":
+      return (
+        <div className="flex items-center gap-2">
+          <PrimaryButton onClick={() => window.location.assign(`/poll/${card.pollId}`)}>
+            Respond
+            <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
+          </PrimaryButton>
+          <div className="ml-auto">{dismiss}</div>
+        </div>
+      );
+
+    case "broadcast_bundle":
+      return (
+        <div className="flex items-center gap-2">
+          <PrimaryButton onClick={() => window.location.assign(`/u/${card.senderId}`)}>
+            View all
+            <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
+          </PrimaryButton>
+          <div className="ml-auto">
+            <GhostButton onClick={() => onResolve(card.id, "dismissed")} label="Dismiss all" />
+          </div>
+        </div>
+      );
   }
 }

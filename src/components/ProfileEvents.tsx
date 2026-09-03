@@ -1,4 +1,5 @@
-import { CalendarClock, MapPin } from "lucide-react";
+import Link from "next/link";
+import { CalendarClock, MapPin, ChevronRight } from "lucide-react";
 
 export interface HostedEventItem {
   id: string;
@@ -13,8 +14,16 @@ function key(s: string | null): number {
   return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t;
 }
 
-/** A host's events on their profile: upcoming first, past below. */
-export function ProfileEvents({ events }: { events: HostedEventItem[] }) {
+/** A host's events on their profile: upcoming first, past below. `clickable`
+ *  links each to its event page — only where the viewer can actually open it
+ *  (their own profile), since the event page is attendee-only for now. */
+export function ProfileEvents({
+  events,
+  clickable = true,
+}: {
+  events: HostedEventItem[];
+  clickable?: boolean;
+}) {
   if (events.length === 0) return null;
 
   const now = Date.now();
@@ -34,7 +43,7 @@ export function ProfileEvents({ events }: { events: HostedEventItem[] }) {
           </h2>
           <div className="space-y-2">
             {upcoming.map((e) => (
-              <EventRow key={e.id} item={e} />
+              <EventRow key={e.id} item={e} clickable={clickable} />
             ))}
           </div>
         </>
@@ -47,7 +56,7 @@ export function ProfileEvents({ events }: { events: HostedEventItem[] }) {
           </h2>
           <div className="space-y-2">
             {past.map((e) => (
-              <EventRow key={e.id} item={e} muted />
+              <EventRow key={e.id} item={e} muted clickable={clickable} />
             ))}
           </div>
         </>
@@ -56,13 +65,21 @@ export function ProfileEvents({ events }: { events: HostedEventItem[] }) {
   );
 }
 
-function EventRow({ item, muted = false }: { item: HostedEventItem; muted?: boolean }) {
-  return (
-    <div
-      className={`flex gap-3 rounded-2xl border border-neutral-200/80 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 ${
-        muted ? "opacity-70" : ""
-      }`}
-    >
+function EventRow({
+  item,
+  muted = false,
+  clickable = true,
+}: {
+  item: HostedEventItem;
+  muted?: boolean;
+  clickable?: boolean;
+}) {
+  const base = `group flex items-center gap-3 rounded-2xl border border-neutral-200/80 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 ${
+    clickable ? "transition hover:border-neutral-300 hover:shadow-md dark:hover:border-neutral-700" : ""
+  } ${muted ? "opacity-70" : ""}`;
+
+  const inner = (
+    <>
       <div
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
           muted
@@ -86,6 +103,18 @@ function EventRow({ item, muted = false }: { item: HostedEventItem; muted?: bool
           </p>
         )}
       </div>
-    </div>
+      {clickable && (
+        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 transition group-hover:text-neutral-500 dark:text-neutral-600" />
+      )}
+    </>
+  );
+
+  if (!clickable) {
+    return <div className={base}>{inner}</div>;
+  }
+  return (
+    <Link href={`/event/${item.id}`} className={base}>
+      {inner}
+    </Link>
   );
 }

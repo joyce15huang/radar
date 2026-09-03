@@ -80,7 +80,8 @@ export function GuestFaces({ eventId }: { eventId: string }) {
   const overflow = roster.going.length + roster.invited.length - faces.length;
   const caption =
     `${roster.goingCount} going` +
-    (roster.invitedCount > 0 ? ` · ${roster.invitedCount} invited` : "");
+    (roster.invitedCount > 0 ? ` · ${roster.invitedCount} invited` : "") +
+    (roster.hasFee ? ` · ${roster.paidCount} paid` : "");
 
   return (
     <div className="flex items-center gap-2">

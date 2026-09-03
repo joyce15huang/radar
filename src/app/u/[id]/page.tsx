@@ -3,9 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
-import { ProfileWall, type ProfilePost } from "@/components/ProfileWall";
+import { type ProfilePost } from "@/components/ProfileWall";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
-import { ProfileEvents, type HostedEventItem } from "@/components/ProfileEvents";
+import { type HostedEventItem } from "@/components/ProfileEvents";
+import { ProfilePanels } from "@/components/ProfilePanels";
+import { getFriendState, mutualFriends } from "@/app/friends-actions";
 import { publicImageUrl } from "@/lib/storage";
 
 interface EventRow {
@@ -21,6 +23,7 @@ interface PostRow {
   image_path: string | null;
   caption: string | null;
   created_at: string;
+  taken_on: string | null;
   events: { title: string } | { title: string }[] | null;
 }
 
@@ -45,16 +48,18 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
   if (!profile) notFound();
 
   const admin = createAdminClient();
-  const [{ data: postRows }, { data: eventRows }] = await Promise.all([
+  const [{ data: postRows }, { data: eventRows }, friendState, mutuals] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, image_path, caption, created_at, events(title)")
+      .select("id, image_path, caption, created_at, taken_on, events(title)")
       .eq("author_id", id)
       .order("created_at", { ascending: false }),
     admin
       .from("events")
       .select("id, title, event_time, starts_at, location")
       .eq("creator_id", id),
+    getFriendState(id),
+    mutualFriends(id),
   ]);
 
   const hosted: HostedEventItem[] = ((eventRows ?? []) as EventRow[]).map((e) => ({
@@ -72,6 +77,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
       imageUrl: publicImageUrl(row.image_path),
       caption: row.caption,
       createdAt: row.created_at,
+      takenOn: row.taken_on,
       eventTitle: eventTitleOf(row.events),
     };
   });
@@ -83,8 +89,6 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
     bio: profile.bio ?? null,
     avatarUrl: publicImageUrl(profile.avatar_path),
     links,
-    hostedEvents: hosted.length,
-    postCount: posts.length,
   };
 
   return (
@@ -92,9 +96,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-8 sm:px-6 sm:pt-12">
         <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
-        <ProfileHeader data={header} />
-        <ProfileEvents events={hosted} />
-        <ProfileWall posts={posts} isOwner={false} />
+        <ProfileHeader data={header} targetId={id} friendState={friendState} mutuals={mutuals} />
+        <ProfilePanels posts={posts} events={hosted} isOwner={false} />
       </div>
     </main>
   );

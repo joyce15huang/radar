@@ -2,30 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import {
-  UserPlus,
-  Loader2,
-  Check,
-  X,
-  Clock,
-  Users,
-  UserMinus,
-  Undo2,
-  AtSign,
-} from "lucide-react";
-import {
-  sendFriendRequest,
-  respondToRequest,
-  cancelRequest,
-  removeFriend,
-} from "@/app/friends-actions";
-import type { FriendEntry, FriendActionResult } from "@/lib/friends";
-import { normalizeUsername } from "@/lib/username";
+import { useRouter } from "next/navigation";
+import { UserPlus, Loader2, UserMinus, AtSign, Users, Check, X } from "lucide-react";
+import { addFriend, unfriend, acceptFriend, declineFriend } from "@/app/friends-actions";
+import type { FriendEntry, FriendRequestEntry } from "@/lib/friends";
 
 const inputCls =
   "w-full rounded-xl border border-neutral-200 bg-white py-2.5 pl-9 pr-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-neutral-600 dark:focus:ring-neutral-700";
 
-/** Initials for an avatar chip, e.g. "joyce15huang" → "JO". */
 function initials(text: string): string {
   const parts = text.split(/[\s._-]+/).filter(Boolean);
   const from = parts.length > 1 ? parts.slice(0, 2).map((p) => p[0]) : [text[0], text[1]];
@@ -40,19 +24,15 @@ function Avatar({ label }: { label: string }) {
   );
 }
 
+/** The Friends subtab: add by username, incoming requests, then your friends. */
 export function FriendsClient({
-  friends: initFriends,
-  incoming: initIncoming,
-  outgoing: initOutgoing,
+  friends,
+  requests,
 }: {
   friends: FriendEntry[];
-  incoming: FriendEntry[];
-  outgoing: FriendEntry[];
+  requests: FriendRequestEntry[];
 }) {
-  const [friends, setFriends] = useState(initFriends);
-  const [incoming, setIncoming] = useState(initIncoming);
-  const [outgoing, setOutgoing] = useState(initOutgoing);
-
+  const router = useRouter();
   const [handle, setHandle] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,93 +42,38 @@ export function FriendsClient({
   async function onAdd(e: React.FormEvent) {
     e.preventDefault();
     const raw = handle.trim();
-    if (!raw) {
-      setError("Enter a username.");
-      return;
-    }
-    const uname = normalizeUsername(raw);
+    if (!raw) return setError("Enter a username.");
     setPending(true);
     setError(null);
     setNotice(null);
-    let res: FriendActionResult;
-    try {
-      res = await sendFriendRequest(raw);
-    } catch (err) {
-      setPending(false);
-      setError(err instanceof Error ? err.message : String(err));
-      return;
-    }
+    const res = await addFriend(raw);
     setPending(false);
-    if (!res.ok) {
-      setError(res.error ?? "Couldn't send the request.");
-      return;
-    }
+    if (!res.ok) return setError(res.error ?? "Couldn't send the request.");
     setHandle("");
-    if (res.autoAccepted) {
-      setNotice(`You're now friends with @${uname} — they'd already sent you a request.`);
-    } else {
-      setNotice(`Request sent to @${uname}.`);
-      if (!outgoing.some((o) => o.username.toLowerCase() === uname.toLowerCase())) {
-        setOutgoing((prev) => [
-          { friendshipId: `pending-${uname}`, userId: "", username: uname, email: "", name: uname },
-          ...prev,
-        ]);
-      }
-    }
+    setNotice(res.status === "friends" ? "You're now friends." : "Friend request sent.");
+    router.refresh();
   }
 
-  async function onRespond(entry: FriendEntry, accept: boolean) {
-    setBusyId(entry.friendshipId);
+  async function act(id: string, fn: () => Promise<{ ok: boolean; error?: string }>) {
+    setBusyId(id);
     setError(null);
-    const res = await respondToRequest(entry.friendshipId, accept);
+    const res = await fn();
     setBusyId(null);
-    if (!res.ok) {
-      setError(res.error ?? "Couldn't update the request.");
-      return;
-    }
-    setIncoming((prev) => prev.filter((e) => e.friendshipId !== entry.friendshipId));
-    if (accept) setFriends((prev) => [entry, ...prev]);
-  }
-
-  async function onCancel(entry: FriendEntry) {
-    setBusyId(entry.friendshipId);
-    setError(null);
-    const res = await cancelRequest(entry.friendshipId);
-    setBusyId(null);
-    if (!res.ok) {
-      setError(res.error ?? "Couldn't cancel the request.");
-      return;
-    }
-    setOutgoing((prev) => prev.filter((e) => e.friendshipId !== entry.friendshipId));
-  }
-
-  async function onRemove(entry: FriendEntry) {
-    setBusyId(entry.friendshipId);
-    setError(null);
-    const res = await removeFriend(entry.friendshipId);
-    setBusyId(null);
-    if (!res.ok) {
-      setError(res.error ?? "Couldn't remove.");
-      return;
-    }
-    setFriends((prev) => prev.filter((e) => e.friendshipId !== entry.friendshipId));
+    if (!res.ok) return setError(res.error ?? "Something went wrong.");
+    router.refresh();
   }
 
   return (
-    <div className="space-y-6">
-      {/* Add by username */}
+    <div className="space-y-5">
       <form onSubmit={onAdd} className="space-y-2">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <AtSign
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400"
-              strokeWidth={2}
-            />
+            <AtSign className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" strokeWidth={2} />
             <input
               type="text"
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
-              placeholder="username"
+              placeholder="username to add"
               autoComplete="off"
               autoCapitalize="none"
               spellCheck={false}
@@ -168,165 +93,96 @@ export function FriendsClient({
         {notice && <p className="text-sm text-emerald-600 dark:text-emerald-400">{notice}</p>}
       </form>
 
-      {/* Incoming requests */}
-      {incoming.length > 0 && (
-        <Section title="Requests" count={incoming.length}>
-          {incoming.map((e) => (
-            <Row key={e.friendshipId} entry={e}>
-              <button
-                type="button"
-                onClick={() => onRespond(e, true)}
-                disabled={busyId === e.friendshipId}
-                className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-              >
-                {busyId === e.friendshipId ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Check className="h-3.5 w-3.5" />
-                )}
-                Accept
-              </button>
-              <button
-                type="button"
-                onClick={() => onRespond(e, false)}
-                disabled={busyId === e.friendshipId}
-                aria-label="Decline"
-                className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-              >
-                <X className="h-3.5 w-3.5" />
-                Decline
-              </button>
-            </Row>
-          ))}
-        </Section>
-      )}
-
-      {/* Accepted friends */}
-      <Section title="Friends" count={friends.length}>
-        {friends.length === 0 ? (
-          <EmptyRow
-            icon={<Users className="h-6 w-6" strokeWidth={2} />}
-            text="No friends yet. Add someone by their username above."
-          />
-        ) : (
-          friends.map((e) => (
-            <Row key={e.friendshipId} entry={e} href={e.userId ? `/u/${e.userId}` : undefined}>
-              <button
-                type="button"
-                onClick={() => onRemove(e)}
-                disabled={busyId === e.friendshipId}
-                aria-label="Remove friend"
-                className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
-              >
-                {busyId === e.friendshipId ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <UserMinus className="h-3.5 w-3.5" />
-                )}
-                Remove
-              </button>
-            </Row>
-          ))
-        )}
-      </Section>
-
-      {/* Outgoing pending */}
-      {outgoing.length > 0 && (
-        <Section title="Sent" count={outgoing.length}>
-          {outgoing.map((e) => (
-            <Row key={e.friendshipId} entry={e}>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-                <Clock className="h-3.5 w-3.5" />
-                Pending
-              </span>
-              {e.friendshipId.startsWith("pending-") ? null : (
+      {requests.length > 0 && (
+        <section>
+          <SectionTitle>Requests</SectionTitle>
+          <div className="space-y-2">
+            {requests.map((e) => (
+              <Row key={e.id} entry={e}>
                 <button
                   type="button"
-                  onClick={() => onCancel(e)}
-                  disabled={busyId === e.friendshipId}
-                  aria-label="Cancel request"
-                  className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                  onClick={() => act(e.id, () => acceptFriend(e.id))}
+                  disabled={busyId === e.id}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
                 >
-                  {busyId === e.friendshipId ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Undo2 className="h-3.5 w-3.5" />
-                  )}
-                  Cancel
+                  {busyId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  Accept
                 </button>
-              )}
-            </Row>
-          ))}
-        </Section>
+                <button
+                  type="button"
+                  onClick={() => act(e.id, () => declineFriend(e.id))}
+                  disabled={busyId === e.id}
+                  aria-label="Decline"
+                  className="rounded-full p-1.5 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-60 dark:hover:bg-neutral-800"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Row>
+            ))}
+          </div>
+        </section>
       )}
+
+      <section>
+        {requests.length > 0 && <SectionTitle>Friends</SectionTitle>}
+        <div className="space-y-2">
+          {friends.length === 0 ? (
+            <EmptyRow text="No friends yet. Add someone by their username above." />
+          ) : (
+            friends.map((e) => (
+              <Row key={e.id} entry={e}>
+                <button
+                  type="button"
+                  onClick={() => act(e.id, () => unfriend(e.id))}
+                  disabled={busyId === e.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-rose-500/30 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                >
+                  {busyId === e.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserMinus className="h-3.5 w-3.5" />}
+                  Unfriend
+                </button>
+              </Row>
+            ))
+          )}
+        </div>
+      </section>
     </div>
   );
 }
 
-function Section({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: number;
-  children: React.ReactNode;
-}) {
+function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <section>
-      <h2 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-        {title}
-        <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-          {count}
-        </span>
-      </h2>
-      <div className="space-y-2">{children}</div>
-    </section>
+    <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+      {children}
+    </h2>
   );
 }
 
-function Row({
-  entry,
-  href,
-  children,
-}: {
-  entry: FriendEntry;
-  href?: string;
-  children: React.ReactNode;
-}) {
+function Row({ entry, children }: { entry: FriendEntry | FriendRequestEntry; children: React.ReactNode }) {
   const label = entry.username || entry.name;
-  const identity = (
-    <div className="flex min-w-0 items-center gap-3">
-      <Avatar label={label} />
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-          {entry.username ? `@${entry.username}` : entry.name}
-        </p>
-        {entry.email && (
-          <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{entry.email}</p>
-        )}
-      </div>
-    </div>
-  );
-
   return (
-    <div className="flex items-center justify-between gap-2 rounded-2xl border border-neutral-200/80 bg-white p-3 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-      {href ? (
-        <Link href={href} className="min-w-0 flex-1 rounded-xl transition hover:opacity-80">
-          {identity}
-        </Link>
-      ) : (
-        <div className="min-w-0 flex-1">{identity}</div>
-      )}
+    <div className="flex items-center justify-between gap-2 rounded-2xl border border-neutral-200/70 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+      <Link href={`/u/${entry.id}`} className="min-w-0 flex-1 rounded-xl transition hover:opacity-80">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar label={label} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {entry.username ? `@${entry.username}` : entry.name}
+            </p>
+            {entry.email && <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{entry.email}</p>}
+          </div>
+        </div>
+      </Link>
       <div className="flex shrink-0 items-center gap-1.5">{children}</div>
     </div>
   );
 }
 
-function EmptyRow({ icon, text }: { icon: React.ReactNode; text: string }) {
+function EmptyRow({ text }: { text: string }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-neutral-200 bg-white/50 px-4 py-8 text-center dark:border-neutral-800 dark:bg-neutral-900/40">
-      <span className="text-neutral-300 dark:text-neutral-600">{icon}</span>
+      <span className="text-neutral-300 dark:text-neutral-600">
+        <Users className="h-6 w-6" strokeWidth={2} />
+      </span>
       <p className="text-sm text-neutral-400 dark:text-neutral-500">{text}</p>
     </div>
   );

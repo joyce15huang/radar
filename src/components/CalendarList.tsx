@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import {
   X,
   MapPin,
@@ -11,12 +11,17 @@ import {
   Pencil,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Loader2,
   Check,
   UserPlus,
   Crown,
   Users,
+  DollarSign,
+  MoreHorizontal,
+  Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import type {
   DigestCardData,
   SocialInviteCard,
@@ -311,10 +316,11 @@ function EventRow({
   const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
 
-  // Collapsing (including "Collapse all") should drop out of edit mode too.
+  // Collapsing (including "Collapse all") should drop out of edit mode too — but
+  // personal entries edit inline (no expand), so they're exempt.
   useEffect(() => {
-    if (!expanded && editing) setEditing(false);
-  }, [expanded, editing]);
+    if (!expanded && editing && card.type !== "calendar_radar") setEditing(false);
+  }, [expanded, editing, card.type]);
 
   if (
     card.type !== "social_invite" &&
@@ -333,6 +339,9 @@ function EventRow({
   const isGuest = isInvite && !!hostId && !isHost;
   const eventId = isInvite ? card.eventId : undefined;
   const allowReinvite = isInvite ? !!card.allowReinvite : false;
+  // A shared event has its own detail page — the row links there instead of
+  // expanding an accordion. Personal schedule items keep the inline accordion.
+  const hasPage = isInvite && !!eventId;
 
   // Editable only by the owner: the host for a shared event, or yourself for a
   // personal schedule item. Guests' invites and time windows are read-only.
@@ -349,6 +358,7 @@ function EventRow({
   // Kept only as context for the note-echo guard (the visible time lives in the tile).
   const timeLabel = isInvite ? card.eventTime : isRadar ? card.time : "";
   const location = !isWindow ? card.location : undefined;
+  const radarDetails = isRadar ? (card as CalendarRadarCard).details : undefined;
 
   // Preserved public source (link + countdown) shown on hosted/guest invites.
   const sourceUrl = isInvite ? card.sourceUrl : isWindow ? card.actionUrl : undefined;
@@ -367,51 +377,120 @@ function EventRow({
       <div className="flex gap-3 p-3">
         <TimeTile card={card} tz={tz} />
 
-        <button
-          type="button"
-          onClick={() => {
-            if (editing) return;
-            onExpandedChange(!expanded);
-          }}
-          aria-expanded={expanded}
-          className="min-w-0 flex-1 text-left"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-              {title}
-            </h3>
-            <ChevronDown
-              className={`mt-0.5 h-4 w-4 shrink-0 text-neutral-400 transition-transform ${
-                expanded ? "rotate-180" : ""
-              }`}
-              strokeWidth={2}
-            />
-          </div>
-          {!expanded && location && (
-            <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
-              <MapPin className="h-3.5 w-3.5" />
-              {location}
-            </p>
-          )}
-          {isInvite && eventId && (
-            <div className="mt-1.5">
-              <GuestFaces eventId={eventId} />
+        {hasPage ? (
+          <Link href={`/event/${eventId}`} className="min-w-0 flex-1 text-left">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
+                {title}
+              </h3>
+              <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" strokeWidth={2} />
             </div>
-          )}
-        </button>
+            {location && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
+                <MapPin className="h-3.5 w-3.5" />
+                {location}
+              </p>
+            )}
+            {eventId && (
+              <div className="mt-1.5">
+                <GuestFaces eventId={eventId} />
+              </div>
+            )}
+            {isInvite && card.fee && card.fee > 0 && (
+              <span className="mt-1 inline-flex items-center gap-1 text-[0.8rem] font-medium text-neutral-600 dark:text-neutral-300">
+                <DollarSign className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
+                {money(card.fee)} to join
+              </span>
+            )}
+          </Link>
+        ) : isRadar ? (
+          // Personal entry: no expand — detail shown inline, edited in place.
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <EditForm
+                card={card as CalendarRadarCard}
+                mode="personal"
+                onCancel={() => setEditing(false)}
+                onSaved={(updated) => {
+                  onUpdate(updated);
+                  setEditing(false);
+                }}
+              />
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
+                  {title}
+                </h3>
+                {location && (
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {location}
+                  </p>
+                )}
+                {radarDetails && !isRedundantNote(radarDetails, { time: timeLabel, location }) && (
+                  <p className="mt-1 text-[0.8rem] text-neutral-600 dark:text-neutral-300">{radarDetails}</p>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              if (editing) return;
+              onExpandedChange(!expanded);
+            }}
+            aria-expanded={expanded}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
+                {title}
+              </h3>
+              <ChevronDown
+                className={`mt-0.5 h-4 w-4 shrink-0 text-neutral-400 transition-transform ${
+                  expanded ? "rotate-180" : ""
+                }`}
+                strokeWidth={2}
+              />
+            </div>
+            {location && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
+                <MapPin className="h-3.5 w-3.5" />
+                {location}
+              </p>
+            )}
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove from Calendar"
-          title="Remove from Calendar"
-          className="-mr-1 -mt-1 h-fit rounded-full p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-        >
-          <X className="h-4 w-4" strokeWidth={2.25} />
-        </button>
+        {isRadar ? (
+          !editing && (
+            <RowMenu
+              items={[
+                ...(!past
+                  ? [
+                      { label: "Edit", icon: Pencil, onClick: () => setEditing(true) },
+                      { label: "Host", icon: UserPlus, onClick: () => setInviting(true) },
+                    ]
+                  : []),
+                { label: "Remove", icon: Trash2, onClick: onRemove, danger: true },
+              ]}
+            />
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Remove from Calendar"
+            title="Remove from Calendar"
+            className="-mr-1 -mt-1 h-fit rounded-full p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+          >
+            <X className="h-4 w-4" strokeWidth={2.25} />
+          </button>
+        )}
       </div>
 
-      {expanded && (
+      {!hasPage && !isRadar && expanded && (
         <div className="border-t border-neutral-100 px-3 pb-3 pt-2.5 dark:border-neutral-800">
           {editing && canEdit ? (
             <EditForm
@@ -427,13 +506,6 @@ function EventRow({
           ) : (
             <>
               <div className="space-y-1.5 text-sm text-neutral-600 dark:text-neutral-300">
-                {location && (
-                  <p className="flex items-center gap-1.5">
-                    <MapPin className="h-4 w-4 text-neutral-400" />
-                    {location}
-                  </p>
-                )}
-
                 {isInvite && isHost && (
                   <p className="flex items-center gap-1.5 font-medium text-fuchsia-600 dark:text-fuchsia-400">
                     <Crown className="h-4 w-4" /> You&rsquo;re hosting
@@ -455,9 +527,6 @@ function EventRow({
                   <p className="text-neutral-600 dark:text-neutral-300">{card.summary}</p>
                 )}
 
-                {isRadar && card.details && !isRedundantNote(card.details, { time: timeLabel, location }) && (
-                  <p>{card.details}</p>
-                )}
                 {isWindow && <p className="text-neutral-600 dark:text-neutral-300">{card.summary}</p>}
 
                 {isInvite && inviteCountdown && inviteCountdown.label && (
@@ -478,25 +547,23 @@ function EventRow({
               </div>
 
               {(canPromote || canReinvite || canEdit) && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(canPromote || canReinvite) && (
-                      <button
-                        type="button"
-                        onClick={() => setInviting(true)}
-                        className="inline-flex items-center gap-1.5 rounded-full bg-fuchsia-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-fuchsia-500"
-                      >
-                        <UserPlus className="h-3.5 w-3.5" />
-                        {canPromote ? "Invite friends" : "Invite more friends"}
-                      </button>
-                    )}
-                  </div>
+                <div className="mt-2.5 flex flex-wrap items-center justify-end gap-2">
+                  {(canPromote || canReinvite) && (
+                    <button
+                      type="button"
+                      onClick={() => setInviting(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                    >
+                      <UserPlus className="h-3.5 w-3.5" />
+                      {canPromote ? "Host" : "Invite more friends"}
+                    </button>
+                  )}
                   {canEdit && (
                     <button
                       type="button"
                       onClick={() => setEditing(true)}
                       aria-label="Edit"
-                      className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                       Edit
@@ -509,12 +576,13 @@ function EventRow({
         </div>
       )}
 
-      {inviting && (
+      {!hasPage && inviting && (
         <InviteComposer
           eventTitle={title}
           target={inviteTarget}
           canSetReinvite={canPromote || isHost}
           initialAllowReinvite={allowReinvite}
+          heading={canPromote ? "Host event" : "Invite friends"}
           onClose={() => setInviting(false)}
         />
       )}
@@ -551,6 +619,8 @@ function EditForm({
   const [location, setLocation] = useState(card.location ?? "");
   const [note, setNote] = useState((isInvite ? card.note : card.details) ?? "");
   const [allowReinvite, setAllowReinvite] = useState(initialReinvite);
+  const [feeStr, setFeeStr] = useState(isInvite && card.fee ? String(card.fee / 100) : "");
+  const [paymentLink, setPaymentLink] = useState(isInvite ? card.paymentLink ?? "" : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -573,6 +643,12 @@ function EditForm({
     setSaving(true);
     setError(null);
 
+    const parsedFee = parseFloat(feeStr);
+    const feeCents =
+      feeStr.trim() && Number.isFinite(parsedFee) && parsedFee > 0
+        ? Math.round(parsedFee * 100)
+        : null;
+
     if (mode === "host" && eventId) {
       const res = await updateHostEvent({
         eventId,
@@ -582,6 +658,8 @@ function EditForm({
         hasTime,
         location: location.trim(),
         note: note.trim(),
+        feeCents,
+        paymentLink: paymentLink.trim(),
       });
       if (!res.ok) {
         setSaving(false);
@@ -623,6 +701,8 @@ function EditForm({
           location: loc,
           note: nt,
           allowReinvite,
+          fee: feeCents ?? undefined,
+          paymentLink: paymentLink.trim() || undefined,
         }
       : { ...(card as CalendarRadarCard), title: title.trim(), time: when, startsAt, location: loc, details: nt };
     onSaved(updated);
@@ -656,13 +736,43 @@ function EditForm({
         <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
           {isInvite ? "Note" : "Details"}
         </span>
-        <input
+        <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="optional"
-          className={field}
+          rows={4}
+          className={`${field} max-h-40 resize-y overflow-y-auto whitespace-pre-wrap break-words`}
         />
       </label>
+
+      {/* Host-only: participation fee + pay link. No real money is processed. */}
+      {mode === "host" && isInvite && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
+              Fee to join ($)
+            </span>
+            <input
+              value={feeStr}
+              onChange={(e) => setFeeStr(e.target.value)}
+              inputMode="decimal"
+              placeholder="blank = free"
+              className={field}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
+              Payment link
+            </span>
+            <input
+              value={paymentLink}
+              onChange={(e) => setPaymentLink(e.target.value)}
+              placeholder="venmo.com/you"
+              className={field}
+            />
+          </label>
+        </div>
+      )}
 
       {/* Host-only permission — lives in Edit, not on the read-only card. */}
       {mode === "host" && isInvite && (
@@ -709,3 +819,76 @@ function EditForm({
     </div>
   );
 }
+
+/** Integer cents → "$40" / "$16.67". */
+function money(cents: number): string {
+  const dollars = cents / 100;
+  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
+interface RowMenuItem {
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  onClick: () => void;
+  danger?: boolean;
+}
+
+/** A kebab "⋯" that opens a small action popover. Fixed-positioned so it escapes
+ *  the card's `overflow-hidden`; a transparent backdrop closes it. */
+function RowMenu({ items }: { items: RowMenuItem[] }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  function toggle() {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
+    }
+    setOpen((v) => !v);
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={toggle}
+        aria-label="More actions"
+        className="-mr-1 -mt-1 h-fit rounded-full p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+      >
+        <MoreHorizontal className="h-4 w-4" strokeWidth={2.25} />
+      </button>
+      {open && pos && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="fixed z-50 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+            style={{ top: pos.top, right: pos.right }}
+          >
+            {items.map((it) => {
+              const Icon = it.icon;
+              return (
+                <button
+                  key={it.label}
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    it.onClick();
+                  }}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
+                    it.danger ? "text-rose-600 dark:text-rose-400" : "text-neutral-700 dark:text-neutral-200"
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {it.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+

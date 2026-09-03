@@ -57,15 +57,18 @@ export default async function Home() {
   // timezone, so yesterday's events fall off the feed the moment the date rolls
   // over — no nightly job required.
   const nowMs = Date.now();
-  const cards = (rows ?? [])
+  const mapped = (rows ?? [])
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)
     .filter((c) => !isPastCard(c, nowMs, APP_TZ));
+  // Anti-flood: collapse multiple broadcasts from one source into one deck card.
+  const cards = bundleBroadcasts(mapped);
 
   // Invites always come first; everything else (posts, news, pings, schedule)
   // stays mixed in its existing created_at order. Array.sort is stable, so the
   // rows (already ordered by created_at) keep their relative order within each group.
-  const rank = (t: string) => (t === "event_update" ? 0 : t === "social_invite" ? 1 : 2);
+  const rank = (t: string) =>
+    t === "event_update" ? 0 : t === "social_invite" || t === "broadcast_bundle" ? 1 : 2;
   cards.sort((a, b) => rank(a.type) - rank(b.type));
 
   const hasPrompt = Boolean(prefs?.standing_prompt?.trim() || prefs?.weekly_prompt?.trim());
@@ -90,6 +93,45 @@ export default async function Home() {
       </div>
     </main>
   );
+}
+
+/**
+ * Collapse ≥2 pending follower-broadcast invites from the SAME source into one
+ * synthetic "broadcast_bundle" card, so a public poster can't flood the deck.
+ * A source with a single broadcast keeps its normal invite card.
+ */
+function bundleBroadcasts(cards: DigestCardData[]): DigestCardData[] {
+  const bySender = new Map<string, DigestCardData[]>();
+  const rest: DigestCardData[] = [];
+  for (const c of cards) {
+    if (c.type === "social_invite" && c.broadcast && c.senderId) {
+      const arr = bySender.get(c.senderId) ?? [];
+      arr.push(c);
+      bySender.set(c.senderId, arr);
+    } else {
+      rest.push(c);
+    }
+  }
+  const out = [...rest];
+  for (const [senderId, group] of bySender) {
+    if (group.length < 2) {
+      out.push(...group);
+      continue;
+    }
+    const inv = group as Extract<DigestCardData, { type: "social_invite" }>[];
+    out.push({
+      type: "broadcast_bundle",
+      id: `bundle:${senderId}`,
+      status: "pending",
+      createdAt: inv.reduce((m, c) => (c.createdAt > m ? c.createdAt : m), inv[0].createdAt),
+      senderId,
+      senderName: inv[0].senderName,
+      count: inv.length,
+      titles: inv.map((c) => c.eventTitle),
+      cardIds: inv.map((c) => c.id),
+    });
+  }
+  return out;
 }
 
 /** Rendered when the cards query fails — almost always a missing migration. */

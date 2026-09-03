@@ -61,6 +61,14 @@ export interface GeneratedCard {
    * "Street fair", "Whale watching"). Concrete, not a category word.
    */
   topic?: string | null;
+  /**
+   * A canonical kebab-case slug for the SPECIFIC underlying event/occurrence,
+   * stable across outlets and headlines (e.g. "perseids-meteor-shower",
+   * "outside-lands-festival"). The app scopes it to the event's month and uses
+   * it to avoid re-showing the same event from a different source. Null only for
+   * a truly generic standing gem.
+   */
+  topic_key?: string | null;
 }
 
 // Lazily construct the client so a missing key doesn't throw at import/build time.
@@ -160,6 +168,7 @@ Timing — this is what makes a card useful, so get it exactly right, FROM THE S
 Rules:
 - Ground every card in the provided search context. Use a REAL url from the context for action_url; never invent URLs. If no good source exists, set action_url to null.
 - topic: ALWAYS set a 1-3 word label of WHAT the thing is — concrete and specific, not a category word. E.g. "Stargazing", "Live music", "Farmers market", "National park", "Whale watching", "Street fair", "Meteor shower", "Wine tasting". This is shown on undated cards so the user knows what it is at a glance.
+- topic_key: ALWAYS set a canonical kebab-case slug for the SPECIFIC underlying event or occurrence, and make it STABLE across different outlets and headlines. E.g. "perseids-meteor-shower", "outside-lands-festival", "yosemite-firefall", "sf-cherry-blossom-festival". The SAME real event must get the SAME slug even when two sources word the headline differently — base it on the event itself (named phenomenon, plus place when needed to disambiguate), never on the headline's phrasing. This lets the app avoid showing the user the same event twice from different sources.
 - Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted events. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
 - Keep summaries to 2-3 sentences, factual and low-anxiety. No hype, no clickbait, no fear-mongering.
 - Avoid near-duplicate cards. Titles are punchy and specific (aim under ~70 characters).`,
@@ -192,6 +201,10 @@ Rules:
                     type: ["string", "null"],
                     description: "1-3 word label of WHAT this is (e.g. 'Stargazing', 'Live music', 'Farmers market', 'National park', 'Whale watching', 'Street fair'). Concrete, not a category word.",
                   },
+                  topic_key: {
+                    type: ["string", "null"],
+                    description: "Canonical kebab-case slug for the SPECIFIC underlying event/occurrence, STABLE across outlets and headlines (e.g. 'perseids-meteor-shower', 'outside-lands-festival'). The same real event must get the same slug even when headlines differ; base it on the event itself, not the wording. Null only for a truly generic standing gem.",
+                  },
                   action_label: {
                     type: "string",
                     description: "Short button label, e.g. 'Read more', 'Open lottery', 'View details'.",
@@ -213,7 +226,7 @@ Rules:
                     description: "Short phrase for a fuzzy/seasonal period or time-of-day when no single instant applies (e.g. 'May–August', 'Evenings', '10am–4pm').",
                   },
                 },
-                required: ["kind", "category", "title", "summary", "action_label", "action_url", "topic"],
+                required: ["kind", "category", "title", "summary", "action_label", "action_url", "topic", "topic_key"],
               },
             },
           },

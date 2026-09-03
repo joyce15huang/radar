@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Plus,
   X,
@@ -13,19 +13,40 @@ import {
   MapPin,
   Sparkles,
   ArrowLeft,
+  Link2,
+  ChevronLeft,
+  ChevronRight,
+  Calendar as CalendarIcon,
 } from "lucide-react";
-import { sendCards, createPost, parseEventPreview } from "@/app/create-card-actions";
+import {
+  sendCards,
+  createPost,
+  parseEventPreview,
+  listMyEventsInRange,
+  type RangeEvent,
+} from "@/app/create-card-actions";
 import { createClient } from "@/lib/supabase/client";
 import { POST_IMAGES_BUCKET } from "@/lib/storage";
+import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
 import type { ParsedEvent } from "@/lib/parse/schedule";
+
+/** "YYYY-MM-DD" for a local calendar day. */
+function dateKey(y: number, m: number, d: number): string {
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** [startISO, endISO) spanning the month (y, m) in the viewer's timezone. */
+function monthWindow(y: number, m: number, tz: string): [string, string] | null {
+  const first = dateKey(y, m, 1);
+  const nextY = m === 11 ? y + 1 : y;
+  const nextM = m === 11 ? 0 : m + 1;
+  const start = isoFromLocal(first, "00:00", tz);
+  const end = isoFromLocal(dateKey(nextY, nextM, 1), "00:00", tz);
+  return start && end ? [start, end] : null;
+}
 
 type Mode = "invite" | "post";
 const MAX_PHOTOS = 8;
-
-interface EventOption {
-  id: string;
-  title: string;
-}
 
 interface Result {
   mode: Mode;
@@ -41,7 +62,10 @@ const inputCls =
  * A single-purpose create button. `mode="invite"` lives on the Calendar tab;
  * `mode="post"` lives on the Profile tab. (Pings were removed.)
  */
-export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: EventOption[] }) {
+export function CreateCardFab({ mode }: { mode: Mode }) {
+  const tz = clientTimeZone();
+  const today = localFromIso(new Date().toISOString(), tz)?.date ?? new Date().toISOString().slice(0, 10);
+
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +76,57 @@ export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: Even
   const [inviteText, setInviteText] = useState("");
   const [preview, setPreview] = useState<ParsedEvent | null>(null);
 
-  // Post flow (multiple photos).
+  // Post flow (multiple photos + a date whose events can be linked).
   const [postImages, setPostImages] = useState<{ file: File; url: string }[]>([]);
+  const [takenOn, setTakenOn] = useState(today);
+  const [viewMonth, setViewMonth] = useState(() => {
+    const [y, m] = today.split("-").map(Number);
+    return { y, m: m - 1 };
+  });
+  const [monthEvents, setMonthEvents] = useState<RangeEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [calOpen, setCalOpen] = useState(false);
+
+  // Fetch the visible month's events once (dots the calendar + feeds the chips).
+  useEffect(() => {
+    if (!open || mode !== "post") return;
+    const w = monthWindow(viewMonth.y, viewMonth.m, tz);
+    if (!w) {
+      setMonthEvents([]);
+      return;
+    }
+    let live = true;
+    setLoadingEvents(true);
+    listMyEventsInRange(w[0], w[1])
+      .then((evs) => live && setMonthEvents(evs))
+      .catch(() => live && setMonthEvents([]))
+      .finally(() => live && setLoadingEvents(false));
+    return () => {
+      live = false;
+    };
+  }, [open, mode, viewMonth, tz]);
+
+  // Which local days in the loaded month carry at least one event (for dots).
+  const eventDays = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of monthEvents) {
+      const d = localFromIso(e.startsAt, tz)?.date;
+      if (d) s.add(d);
+    }
+    return s;
+  }, [monthEvents, tz]);
+
+  // The selected day's events — offered as link targets — from the same fetch.
+  const dayEvents = useMemo(
+    () => monthEvents.filter((e) => localFromIso(e.startsAt, tz)?.date === takenOn),
+    [monthEvents, takenOn, tz],
+  );
+
+  // Drop a stale event link if the chosen day no longer includes it.
+  useEffect(() => {
+    setSelectedEventId((prev) => (prev && dayEvents.some((e) => e.id === prev) ? prev : null));
+  }, [dayEvents]);
 
   function clearImages() {
     setPostImages((prev) => {
@@ -68,6 +141,12 @@ export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: Even
     setInviteText("");
     setRecipients("");
     clearImages();
+    setTakenOn(today);
+    const [ty, tm] = today.split("-").map(Number);
+    setViewMonth({ y: ty, m: tm - 1 });
+    setSelectedEventId(null);
+    setMonthEvents([]);
+    setCalOpen(false);
   }
   function close() {
     if (pending) return;
@@ -125,7 +204,8 @@ export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: Even
       const res = await createPost({
         caption: String(fd.get("caption") ?? ""),
         imagePaths: paths,
-        eventId: String(fd.get("eventId") ?? "") || null,
+        eventId: selectedEventId,
+        takenOn,
       });
       if (!res.ok) throw new Error(res.error ?? "Couldn't publish the post.");
       setResult({ mode: "post", sharedWith: res.sharedWith });
@@ -384,21 +464,86 @@ export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: Even
                         className={`${inputCls} resize-y`}
                       />
                     </Field>
-                    <Field label="Link to an event (optional)">
-                      <select name="eventId" className={inputCls} defaultValue="">
-                        <option value="">Just my profile</option>
-                        {events.map((ev) => (
-                          <option key={ev.id} value={ev.id}>
-                            Share with attendees of “{ev.title}”
-                          </option>
-                        ))}
-                      </select>
-                      {events.length === 0 && (
-                        <span className="mt-1 block text-xs text-neutral-400">
-                          Create an event invite first to share posts with its attendees.
+
+                    <div>
+                      <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                        Date
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCalOpen((o) => !o)}
+                        aria-expanded={calOpen}
+                        className={`${inputCls} flex items-center justify-between text-left`}
+                      >
+                        <span className="text-neutral-900 dark:text-neutral-100">
+                          {formatTaken(takenOn, today)}
                         </span>
+                        <CalendarIcon
+                          className={`h-4 w-4 transition ${
+                            calOpen ? "text-neutral-700 dark:text-neutral-200" : "text-neutral-400"
+                          }`}
+                        />
+                      </button>
+                      {calOpen && (
+                        <div className="mt-2">
+                          <MonthCalendar
+                            view={viewMonth}
+                            selected={takenOn}
+                            today={today}
+                            eventDays={eventDays}
+                            onSelect={(d) => {
+                              setTakenOn(d);
+                              setCalOpen(false);
+                            }}
+                            onPrev={() =>
+                              setViewMonth(({ y, m }) => (m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 }))
+                            }
+                            onNext={() =>
+                              setViewMonth(({ y, m }) => (m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 }))
+                            }
+                          />
+                        </div>
                       )}
-                    </Field>
+                    </div>
+
+                    <div>
+                      <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                        Link to an event (optional)
+                      </span>
+                      {loadingEvents ? (
+                        <p className="text-xs text-neutral-400 dark:text-neutral-500">Checking your calendar…</p>
+                      ) : dayEvents.length === 0 ? (
+                        <p className="text-xs text-neutral-400 dark:text-neutral-500">
+                          No events on your calendar that day — this just goes to your profile.
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {dayEvents.map((ev) => {
+                            const on = selectedEventId === ev.id;
+                            return (
+                              <button
+                                key={ev.id}
+                                type="button"
+                                onClick={() => setSelectedEventId(on ? null : ev.id)}
+                                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                                  on
+                                    ? "bg-neutral-900 text-white dark:bg-white dark:text-neutral-900"
+                                    : "border border-neutral-200 text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                                }`}
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                                {ev.title}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {selectedEventId && (
+                        <p className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                          Shared with everyone on this event too.
+                        </p>
+                      )}
+                    </div>
 
                     {error && <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
 
@@ -425,6 +570,122 @@ export function CreateCardFab({ mode, events = [] }: { mode: Mode; events?: Even
         </div>
       )}
     </>
+  );
+}
+
+/** "Today" for the current day, otherwise "Wed, Sep 3" (with year if not this year). */
+function formatTaken(date: string, today: string): string {
+  if (date === today) return "Today";
+  const d = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return date;
+  const sameYear = date.slice(0, 4) === today.slice(0, 4);
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+
+/** Inline month picker. Days with an event on the actor's calendar get a dot;
+ *  future days are disabled (a post is dated to when the moment happened). */
+function MonthCalendar({
+  view,
+  selected,
+  today,
+  eventDays,
+  onSelect,
+  onPrev,
+  onNext,
+}: {
+  view: { y: number; m: number };
+  selected: string;
+  today: string;
+  eventDays: Set<string>;
+  onSelect: (date: string) => void;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  const { y, m } = view;
+  const leading = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const [ty, tm] = today.split("-").map(Number);
+  const canGoNext = y < ty || (y === ty && m < tm - 1);
+  const monthLabel = new Date(y, m, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < leading; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-950">
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onPrev}
+          aria-label="Previous month"
+          className="rounded-lg p-1 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-sm font-medium text-neutral-800 dark:text-neutral-100">{monthLabel}</span>
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={!canGoNext}
+          aria-label="Next month"
+          className="rounded-lg p-1 text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-800 disabled:pointer-events-none disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mb-1 grid grid-cols-7 gap-1">
+        {WEEKDAYS.map((w, i) => (
+          <div key={i} className="text-center text-[0.65rem] font-medium text-neutral-400 dark:text-neutral-600">
+            {w}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} />;
+          const ds = dateKey(y, m, d);
+          const disabled = ds > today;
+          const isSelected = ds === selected;
+          const hasEvent = eventDays.has(ds);
+          return (
+            <button
+              key={i}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(ds)}
+              className={`relative flex aspect-square items-center justify-center rounded-lg text-sm transition ${
+                isSelected
+                  ? "bg-neutral-900 font-semibold text-white dark:bg-white dark:text-neutral-900"
+                  : disabled
+                    ? "text-neutral-300 dark:text-neutral-700"
+                    : "text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {d}
+              {hasEvent && (
+                <span
+                  className={`absolute bottom-1 h-1 w-1 rounded-full ${
+                    isSelected ? "bg-white dark:bg-neutral-900" : "bg-fuchsia-500 dark:bg-fuchsia-400"
+                  }`}
+                  aria-hidden
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

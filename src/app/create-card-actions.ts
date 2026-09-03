@@ -177,6 +177,8 @@ export async function createPost(input: {
   caption?: string;
   imagePaths: string[];
   eventId?: string | null;
+  /** The date the moment happened (YYYY-MM-DD); defaults to today client-side. */
+  takenOn?: string | null;
 }): Promise<CreatePostResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -194,6 +196,7 @@ export async function createPost(input: {
     image_paths: paths,
     caption: input.caption?.trim() || null,
     event_id: eventId,
+    taken_on: input.takenOn || null,
   });
   if (postErr) return { ok: false, error: postErr.message };
 
@@ -205,7 +208,20 @@ export async function createPost(input: {
       .eq("id", eventId)
       .maybeSingle();
 
-    if (event && event.creator_id === actorId) {
+    // The author may share a recap if they're ON the event — host OR an
+    // attendee (holds a card) — not only if they hosted it.
+    let onEvent = event?.creator_id === actorId;
+    if (event && !onEvent) {
+      const { data: myCard } = await admin
+        .from("cards")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("user_id", actorId)
+        .limit(1);
+      onEvent = !!myCard && myCard.length > 0;
+    }
+
+    if (event && onEvent) {
       const { data: inviteCards } = await admin
         .from("cards")
         .select("user_id")
@@ -247,4 +263,109 @@ export async function createPost(input: {
   revalidatePath("/profile");
   revalidatePath("/me");
   return { ok: true, sharedWith };
+}
+
+export interface DayEvent {
+  id: string;
+  title: string;
+}
+
+export interface RangeEvent {
+  id: string;
+  title: string;
+  /** UTC ISO start — the client derives the local calendar day from it. */
+  startsAt: string;
+}
+
+/**
+ * Events the actor hosts OR holds a card for whose start falls in
+ * [startISO, endISO) — used to dot a month on the post-date calendar and to
+ * offer that day's events as link targets, from a single fetch per month.
+ * Only events with a concrete `starts_at` can be placed on a day.
+ */
+export async function listMyEventsInRange(startISO: string, endISO: string): Promise<RangeEvent[]> {
+  const actor = await getActor();
+  if (!actor) return [];
+  const admin = createAdminClient();
+  const { actorId } = actor;
+
+  const { data: hosted } = await admin
+    .from("events")
+    .select("id, title, starts_at")
+    .eq("creator_id", actorId)
+    .gte("starts_at", startISO)
+    .lt("starts_at", endISO);
+
+  const { data: myCards } = await admin
+    .from("cards")
+    .select("event_id")
+    .eq("user_id", actorId)
+    .not("event_id", "is", null);
+  const cardEventIds = [...new Set((myCards ?? []).map((c) => c.event_id as string).filter(Boolean))];
+
+  let attended: { id: string; title: string | null; starts_at: string | null }[] = [];
+  if (cardEventIds.length > 0) {
+    const { data } = await admin
+      .from("events")
+      .select("id, title, starts_at")
+      .in("id", cardEventIds)
+      .gte("starts_at", startISO)
+      .lt("starts_at", endISO);
+    attended = (data ?? []) as { id: string; title: string | null; starts_at: string | null }[];
+  }
+
+  const byId = new Map<string, RangeEvent>();
+  for (const e of [...(hosted ?? []), ...attended]) {
+    const startsAt = e.starts_at as string | null;
+    if (!startsAt) continue;
+    byId.set(e.id as string, {
+      id: e.id as string,
+      title: (e.title as string) ?? "Event",
+      startsAt,
+    });
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Events on the actor's calendar within [dayStartISO, dayEndISO) — ones they
+ * host OR hold a card for — so a post can be linked to one and shared with its
+ * attendees. Caller passes the day window (computed in the viewer's timezone).
+ */
+export async function listMyEventsOnDay(dayStartISO: string, dayEndISO: string): Promise<DayEvent[]> {
+  const actor = await getActor();
+  if (!actor) return [];
+  const admin = createAdminClient();
+  const { actorId } = actor;
+
+  const { data: hosted } = await admin
+    .from("events")
+    .select("id, title")
+    .eq("creator_id", actorId)
+    .gte("starts_at", dayStartISO)
+    .lt("starts_at", dayEndISO);
+
+  const { data: myCards } = await admin
+    .from("cards")
+    .select("event_id")
+    .eq("user_id", actorId)
+    .not("event_id", "is", null);
+  const cardEventIds = [...new Set((myCards ?? []).map((c) => c.event_id as string).filter(Boolean))];
+
+  let attended: { id: string; title: string | null }[] = [];
+  if (cardEventIds.length > 0) {
+    const { data } = await admin
+      .from("events")
+      .select("id, title")
+      .in("id", cardEventIds)
+      .gte("starts_at", dayStartISO)
+      .lt("starts_at", dayEndISO);
+    attended = (data ?? []) as { id: string; title: string | null }[];
+  }
+
+  const byId = new Map<string, DayEvent>();
+  for (const e of [...(hosted ?? []), ...attended]) {
+    byId.set(e.id as string, { id: e.id as string, title: (e.title as string) ?? "Event" });
+  }
+  return [...byId.values()];
 }

@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { GeneratedCard } from "./anthropic";
-import { dedupKey, normalizeLocation, resolveTiming } from "./dedup";
+import { dedupKey, topicKey, normalizeLocation, resolveTiming } from "./dedup";
 
 /** A row in the shared `sourced_events` pool (server-only). */
 export interface PoolEvent {
   dedup_key: string;
+  /** Looser month-scoped slug for the same event across outlets (may be null). */
+  topic_key: string | null;
   location: string;
   kind: "scout" | "time_window";
   category: string;
@@ -42,6 +44,11 @@ export function poolRowFromCard(
     dedup_key: dedupKey({
       title: card.title,
       location,
+      opensAt: t.opensAt,
+      expiresAt: t.expiresAt,
+    }),
+    topic_key: topicKey({
+      topicKey: card.topic_key,
       opensAt: t.opensAt,
       expiresAt: t.expiresAt,
     }),
@@ -89,7 +96,9 @@ export async function upsertPoolEvents(
 
 /**
  * Draw up to `limit` future pool events for the given locations, excluding any
- * dedup_key the caller already holds. Soonest-ending first.
+ * dedup_key OR month-scoped topic_key the caller already holds — the latter
+ * drops a same-event dupe that a different outlet worded differently. Soonest-
+ * ending first.
  */
 export async function drawFromPool(
   admin: SupabaseClient,
@@ -97,6 +106,7 @@ export async function drawFromPool(
   excludeKeys: Set<string>,
   startISO: string,
   limit: number,
+  excludeTopics: Set<string> = new Set(),
 ): Promise<PoolEvent[]> {
   const locs = [...new Set(locations.map(normalizeLocation).filter(Boolean))];
   if (!locs.length || limit <= 0) return [];
@@ -106,11 +116,12 @@ export async function drawFromPool(
     .in("location", locs)
     .gt("prune_at", startISO)
     .order("prune_at", { ascending: true })
-    .limit(limit + excludeKeys.size + 10);
+    .limit(limit + excludeKeys.size + excludeTopics.size + 10);
   const rows = (data ?? []) as PoolEvent[];
   const out: PoolEvent[] = [];
   for (const r of rows) {
     if (excludeKeys.has(r.dedup_key)) continue;
+    if (r.topic_key && excludeTopics.has(r.topic_key)) continue;
     out.push(r);
     if (out.length >= limit) break;
   }

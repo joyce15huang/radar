@@ -11,6 +11,8 @@ export interface Attendee {
   status: AttendeeStatus;
   /** The event host (shown with an accent + crown). */
   isHost: boolean;
+  /** Whether this attendee has tapped "I've paid" (only meaningful if hasFee). */
+  feePaid: boolean;
 }
 
 export interface EventRoster {
@@ -20,4 +22,8 @@ export interface EventRoster {
   invited: Attendee[];
   goingCount: number;
   invitedCount: number;
+  /** The event charges a participation fee. */
+  hasFee: boolean;
+  /** How many attendees have confirmed payment. */
+  paidCount: number;
 }

@@ -9,7 +9,7 @@ import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 
 const EVENT_COLS =
-  "id, creator_id, title, event_time, location, note, source_url, summary, category, starts_at, expires_at, opens_at, allow_reinvite";
+  "id, creator_id, title, event_time, location, note, source_url, summary, category, starts_at, expires_at, opens_at, allow_reinvite, fee_cents, payment_link, venmo_id, zelle_id";
 
 interface EventRow {
   id: string;
@@ -25,6 +25,10 @@ interface EventRow {
   expires_at: string | null;
   opens_at: string | null;
   allow_reinvite: boolean | null;
+  fee_cents: number | null;
+  payment_link: string | null;
+  venmo_id: string | null;
+  zelle_id: string | null;
 }
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -119,6 +123,10 @@ function buildInviteContent(a: {
   if (e.category) c.category = e.category;
   if (e.expires_at) c.expiresAt = e.expires_at;
   if (e.opens_at) c.opensAt = e.opens_at;
+  if (e.fee_cents != null) c.fee = String(e.fee_cents);
+  if (e.payment_link) c.paymentLink = e.payment_link;
+  if (e.venmo_id) c.venmoId = e.venmo_id;
+  if (e.zelle_id) c.zelleId = e.zelle_id;
   return c;
 }
 
@@ -285,6 +293,11 @@ export async function updateHostEvent(input: {
   hasTime?: boolean;
   location?: string;
   note?: string;
+  /** Participation fee in integer cents, or null to clear it. */
+  feeCents?: number | null;
+  paymentLink?: string;
+  venmoId?: string;
+  zelleId?: string;
 }): Promise<UpdateHostResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -321,10 +334,24 @@ export async function updateHostEvent(input: {
 
   const loc = input.location?.trim() || null;
   const note = input.note?.trim() || null;
+  const feeCents = input.feeCents ?? null;
+  const paymentLink = input.paymentLink?.trim() || null;
+  const venmoId = input.venmoId?.trim().replace(/^@/, "") || null;
+  const zelleId = input.zelleId?.trim() || null;
 
   await admin
     .from("events")
-    .update({ title, event_time: when, starts_at: startsAt, location: loc, note })
+    .update({
+      title,
+      event_time: when,
+      starts_at: startsAt,
+      location: loc,
+      note,
+      fee_cents: feeCents,
+      payment_link: paymentLink,
+      venmo_id: venmoId,
+      zelle_id: zelleId,
+    })
     .eq("id", input.eventId);
 
   const hostName = await profileName(admin, actorId);
@@ -340,6 +367,14 @@ export async function updateHostEvent(input: {
     else delete content.location;
     if (note) content.note = note;
     else delete content.note;
+    if (feeCents != null) content.fee = String(feeCents);
+    else delete content.fee;
+    if (paymentLink) content.paymentLink = paymentLink;
+    else delete content.paymentLink;
+    if (venmoId) content.venmoId = venmoId;
+    else delete content.venmoId;
+    if (zelleId) content.zelleId = zelleId;
+    else delete content.zelleId;
     await admin.from("cards").update({ title, content }).eq("id", card.id as string);
   }
 
@@ -415,4 +450,43 @@ export async function toggleReinvite(input: {
 
   revalidatePath("/calendar");
   return { ok: true, allow: input.allow };
+}
+
+export interface FeePaidResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * The manual "I've paid" tap. Records payment confirmation on the caller's OWN
+ * invite card (content.feePaid) — no real money is moved. RLS confines the write
+ * to a card the active persona owns.
+ */
+export async function setFeePaid(cardId: string, paid: boolean): Promise<FeePaidResult> {
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { supabase, actorId } = actor;
+
+  const { data: card, error: readErr } = await supabase
+    .from("cards")
+    .select("content")
+    .eq("id", cardId)
+    .eq("user_id", actorId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  if (!card) return { ok: false, error: "Couldn't find that invite." };
+
+  const prev = (card.content ?? {}) as Record<string, string | null>;
+  const content = { ...prev, feePaid: paid ? "true" : "false" };
+
+  const { error } = await supabase
+    .from("cards")
+    .update({ content })
+    .eq("id", cardId)
+    .eq("user_id", actorId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/");
+  revalidatePath("/calendar");
+  return { ok: true };
 }

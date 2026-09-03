@@ -66,7 +66,7 @@ export function FriendPicker({
   return (
     <div>
       <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-        Friends
+        Your friends
       </span>
 
       {/* Tag-style input box */}
@@ -108,7 +108,7 @@ export function FriendPicker({
           autoCapitalize="none"
           spellCheck={false}
           disabled={friends.length === 0}
-          placeholder={selected.length === 0 ? "Search friends by username…" : ""}
+          placeholder={selected.length === 0 ? "Search your friends…" : ""}
           className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed dark:text-neutral-100 dark:placeholder:text-neutral-600"
         />
       </div>
@@ -116,7 +116,7 @@ export function FriendPicker({
       {friends.length === 0 && (
         <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
           You have no friends yet.{" "}
-          <Link href="/friends" className="font-medium underline hover:text-neutral-600 dark:hover:text-neutral-300">
+          <Link href="/me?tab=friends" className="font-medium underline hover:text-neutral-600 dark:hover:text-neutral-300">
             Add some first
           </Link>{" "}
           to invite them.
@@ -157,7 +157,7 @@ export function FriendPicker({
       {showNoMatch && (
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-neutral-400 dark:text-neutral-500">
           <Users className="h-3.5 w-3.5" />
-          No friends match &ldquo;{query}&rdquo;.
+          No one matches &ldquo;{query}&rdquo;.
         </p>
       )}
     </div>

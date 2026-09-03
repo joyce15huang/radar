@@ -56,6 +56,7 @@ function poolEventToCardRow(userId: string, e: PoolEvent) {
     starts_at: e.starts_at,
     prune_at: e.prune_at,
     dedup_key: e.dedup_key,
+    topic_key: e.topic_key,
     content: {
       category: safeCategory(e.category),
       summary: e.summary,
@@ -112,7 +113,7 @@ export async function fillUserDeck(
   if (pruneErr) return { filled: 0, kept: 0, pruned: 0, cap, error: pruneErr.message };
   const pruned = prunedRows?.length ?? 0;
 
-  // 2. Count survivors + gather every dedup_key this user has EVER held.
+  // 2. Count survivors + gather every dedup_key / topic_key this user has EVER held.
   const [{ data: survivors }, { data: held }] = await Promise.all([
     admin
       .from("cards")
@@ -120,23 +121,30 @@ export async function fillUserDeck(
       .eq("user_id", userId)
       .eq("status", "pending")
       .in("type", PUBLIC_TYPES),
-    admin.from("cards").select("dedup_key").eq("user_id", userId).not("dedup_key", "is", null),
+    admin
+      .from("cards")
+      .select("dedup_key, topic_key")
+      .eq("user_id", userId)
+      .or("dedup_key.not.is.null,topic_key.not.is.null"),
   ]);
   const kept = survivors?.length ?? 0;
-  const heldKeys = new Set<string>(
-    (held ?? [])
-      .map((r) => (r as { dedup_key: string | null }).dedup_key)
-      .filter((k): k is string => Boolean(k)),
-  );
+  const heldKeys = new Set<string>();
+  const heldTopics = new Set<string>();
+  for (const r of held ?? []) {
+    const row = r as { dedup_key: string | null; topic_key: string | null };
+    if (row.dedup_key) heldKeys.add(row.dedup_key);
+    if (row.topic_key) heldTopics.add(row.topic_key);
+  }
 
   const need = opts.extra && opts.extra > 0 ? opts.extra : Math.max(0, cap - kept);
   if (need === 0 || locations.length === 0) return { filled: 0, kept, pruned, cap };
 
   // 3. Fill from the shared pool first (cheap DB read, no external calls).
   const picked: PoolEvent[] = [];
-  for (const e of await drawFromPool(admin, locations, heldKeys, startISO, need)) {
+  for (const e of await drawFromPool(admin, locations, heldKeys, startISO, need, heldTopics)) {
     picked.push(e);
     heldKeys.add(e.dedup_key);
+    if (e.topic_key) heldTopics.add(e.topic_key);
   }
 
   // 4. Live fallback, per location, only for the residual gap — and the fresh
@@ -150,9 +158,10 @@ export async function fillUserDeck(
       continue;
     }
     await upsertPoolEvents(admin, loc, gen, nowMs);
-    for (const e of await drawFromPool(admin, [loc], heldKeys, startISO, need - picked.length)) {
+    for (const e of await drawFromPool(admin, [loc], heldKeys, startISO, need - picked.length, heldTopics)) {
       picked.push(e);
       heldKeys.add(e.dedup_key);
+      if (e.topic_key) heldTopics.add(e.topic_key);
     }
   }
 
@@ -204,22 +213,30 @@ async function refreshPublicDeck(
   // can still surface its own cards.
   const { data: held } = await admin
     .from("cards")
-    .select("dedup_key, status, type")
+    .select("dedup_key, topic_key, status, type")
     .eq("user_id", userId)
-    .not("dedup_key", "is", null);
+    .or("dedup_key.not.is.null,topic_key.not.is.null");
   const suppress = new Set<string>();
+  const suppressTopics = new Set<string>();
   for (const r of held ?? []) {
-    const row = r as { dedup_key: string | null; status: string; type: string };
-    if (!row.dedup_key) continue;
+    const row = r as {
+      dedup_key: string | null;
+      topic_key: string | null;
+      status: string;
+      type: string;
+    };
     const isPendingPublic = row.status === "pending" && PUBLIC_TYPES.includes(row.type);
-    if (!isPendingPublic) suppress.add(row.dedup_key);
+    if (isPendingPublic) continue; // the pending public cards are the ones we're replacing
+    if (row.dedup_key) suppress.add(row.dedup_key);
+    if (row.topic_key) suppressTopics.add(row.topic_key);
   }
 
   // Build the fresh set: shared pool first, then live per location for the gap.
   const picked: PoolEvent[] = [];
-  for (const e of await drawFromPool(admin, locations, suppress, startISO, cap)) {
+  for (const e of await drawFromPool(admin, locations, suppress, startISO, cap, suppressTopics)) {
     picked.push(e);
     suppress.add(e.dedup_key);
+    if (e.topic_key) suppressTopics.add(e.topic_key);
   }
   for (const loc of locations) {
     if (picked.length >= cap) break;
@@ -230,9 +247,10 @@ async function refreshPublicDeck(
       continue;
     }
     await upsertPoolEvents(admin, loc, gen, nowMs);
-    for (const e of await drawFromPool(admin, [loc], suppress, startISO, cap - picked.length)) {
+    for (const e of await drawFromPool(admin, [loc], suppress, startISO, cap - picked.length, suppressTopics)) {
       picked.push(e);
       suppress.add(e.dedup_key);
+      if (e.topic_key) suppressTopics.add(e.topic_key);
     }
   }
 

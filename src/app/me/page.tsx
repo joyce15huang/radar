@@ -3,10 +3,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
-import { ProfileWall, type ProfilePost } from "@/components/ProfileWall";
+import { type ProfilePost } from "@/components/ProfileWall";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
-import { ProfileEvents, type HostedEventItem } from "@/components/ProfileEvents";
+import { type HostedEventItem } from "@/components/ProfileEvents";
+import { ProfilePanels } from "@/components/ProfilePanels";
 import { CreateCardFab } from "@/components/CreateCardFab";
+import { listFriends, listIncomingRequests } from "@/app/friends-actions";
 import { publicImageUrl } from "@/lib/storage";
 
 interface EventRow {
@@ -22,6 +24,7 @@ interface PostRow {
   image_path: string | null;
   caption: string | null;
   created_at: string;
+  taken_on: string | null;
   events: { title: string } | { title: string }[] | null;
 }
 
@@ -31,28 +34,36 @@ function eventTitleOf(e: PostRow["events"]): string | null {
   return e.title ?? null;
 }
 
-export default async function MyProfilePage() {
+export default async function MyProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   const actor = await getActor();
   if (!actor) redirect("/login");
   const { supabase, actorId } = actor;
+  const wantsFriends = ["people", "friends"].includes((await searchParams).tab ?? "");
 
   const admin = createAdminClient();
-  const [{ data: profile }, { data: postRows }, { data: eventRows }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("display_name, bio, links, avatar_path, verified")
-      .eq("id", actorId)
-      .maybeSingle(),
-    supabase
-      .from("posts")
-      .select("id, image_path, caption, created_at, events(title)")
-      .eq("author_id", actorId)
-      .order("created_at", { ascending: false }),
-    admin
-      .from("events")
-      .select("id, title, event_time, starts_at, location")
-      .eq("creator_id", actorId),
-  ]);
+  const [{ data: profile }, { data: postRows }, { data: eventRows }, friends, requests] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("display_name, bio, links, avatar_path, verified")
+        .eq("id", actorId)
+        .maybeSingle(),
+      supabase
+        .from("posts")
+        .select("id, image_path, caption, created_at, taken_on, events(title)")
+        .eq("author_id", actorId)
+        .order("created_at", { ascending: false }),
+      admin
+        .from("events")
+        .select("id, title, event_time, starts_at, location")
+        .eq("creator_id", actorId),
+      listFriends(),
+      listIncomingRequests(),
+    ]);
 
   const hosted: HostedEventItem[] = ((eventRows ?? []) as EventRow[]).map((e) => ({
     id: e.id,
@@ -69,6 +80,7 @@ export default async function MyProfilePage() {
       imageUrl: publicImageUrl(row.image_path),
       caption: row.caption,
       createdAt: row.created_at,
+      takenOn: row.taken_on,
       eventTitle: eventTitleOf(row.events),
     };
   });
@@ -84,8 +96,6 @@ export default async function MyProfilePage() {
     bio: profile?.bio ?? null,
     avatarUrl: publicImageUrl(profile?.avatar_path),
     links,
-    hostedEvents: hosted.length,
-    postCount: posts.length,
   };
 
   return (
@@ -94,10 +104,16 @@ export default async function MyProfilePage() {
         <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <ProfileHeader data={header} />
-        <ProfileEvents events={hosted} />
-        <ProfileWall posts={posts} isOwner />
+        <ProfilePanels
+          posts={posts}
+          events={hosted}
+          isOwner
+          friends={friends}
+          requests={requests}
+          initialTab={wantsFriends ? "friends" : "posts"}
+        />
       </div>
-      <CreateCardFab mode="post" events={hosted.map((e) => ({ id: e.id, title: e.title }))} />
+      <CreateCardFab mode="post" />
     </main>
   );
 }

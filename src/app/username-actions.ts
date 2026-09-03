@@ -29,10 +29,14 @@ export async function setUsername(raw: string): Promise<UsernameResult> {
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "You're not signed in." };
 
-  // id + username are always written; email only when present so we never null
-  // out an existing email on update.
-  const row: { id: string; username: string; email?: string } = {
+  // id + owner_id + username are always written; email only when present so we
+  // never null out an existing email on update. owner_id is required (NOT NULL
+  // since the personas migration) so the INSERT path — a signup where the
+  // handle_new_user trigger hasn't provisioned the row yet — satisfies the
+  // constraint. For the primary persona owner_id == its own id == the login.
+  const row: { id: string; owner_id: string; username: string; email?: string } = {
     id: user.id,
+    owner_id: user.id,
     username: parsed.value,
   };
   if (user.email) row.email = user.email;

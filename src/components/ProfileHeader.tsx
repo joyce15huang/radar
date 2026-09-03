@@ -1,5 +1,9 @@
-import { Globe, AtSign, BadgeCheck, CalendarCheck2 } from "lucide-react";
+"use client";
+
+import { Globe, AtSign, BadgeCheck } from "lucide-react";
 import { initials } from "@/lib/cardTypes";
+import { FriendButton } from "./FriendButton";
+import type { FriendEntry, FriendState } from "@/lib/friends";
 
 export interface ProfileHeaderData {
   name: string;
@@ -7,20 +11,27 @@ export interface ProfileHeaderData {
   bio: string | null;
   avatarUrl: string | null;
   links: { website?: string; instagram?: string; twitter?: string };
-  hostedEvents: number;
-  postCount: number;
 }
 
-export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
-  const hasHosted = data.hostedEvents > 0;
-
+/**
+ * Profile header — identity + content, no vanity counts. Your own Friends live in
+ * a profile subtab. A visitor's profile shows a mutual-friends line + Add-friend.
+ */
+export function ProfileHeader({
+  data,
+  targetId,
+  friendState,
+  mutuals = [],
+}: {
+  data: ProfileHeaderData;
+  targetId?: string;
+  friendState?: FriendState;
+  mutuals?: FriendEntry[];
+}) {
   return (
     <header className="mb-6">
       <div className="flex items-start gap-4">
-        {/* Avatar */}
-        <div
-          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-900 text-lg font-semibold text-white dark:bg-white dark:text-neutral-900"
-        >
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-900 text-lg font-semibold text-white dark:bg-white dark:text-neutral-900">
           {data.avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={data.avatarUrl} alt={data.name} className="h-full w-full object-cover" />
@@ -41,7 +52,6 @@ export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
             <p className="mt-1 text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">{data.bio}</p>
           )}
 
-          {/* External links (borrowed credibility) */}
           {(data.links.website || data.links.instagram || data.links.twitter) && (
             <div className="mt-2 flex flex-wrap gap-2">
               {data.links.website && (
@@ -58,21 +68,28 @@ export function ProfileHeader({ data }: { data: ProfileHeaderData }) {
         </div>
       </div>
 
-      {/* Track record */}
-      <div className="mt-4 flex gap-5 border-t border-neutral-200/70 pt-3 text-sm dark:border-neutral-800">
-        {hasHosted && (
-          <span className="inline-flex items-center gap-1.5 text-neutral-600 dark:text-neutral-300">
-            <CalendarCheck2 className="h-4 w-4 text-neutral-400" />
-            <span className="font-semibold text-neutral-900 dark:text-neutral-50">{data.hostedEvents}</span>
-            {data.hostedEvents === 1 ? "event hosted" : "events hosted"}
-          </span>
-        )}
-        <span className="text-neutral-600 dark:text-neutral-300">
-          <span className="font-semibold text-neutral-900 dark:text-neutral-50">{data.postCount}</span>{" "}
-          {data.postCount === 1 ? "post" : "posts"}
-        </span>
-      </div>
+      {/* Visitor: mutual friends + add friend */}
+      {targetId && friendState && (
+        <div className="mt-4 flex flex-col gap-2">
+          {mutuals.length > 0 && <MutualLine mutuals={mutuals} />}
+          <FriendButton targetId={targetId} initial={friendState} />
+        </div>
+      )}
     </header>
+  );
+}
+
+function MutualLine({ mutuals }: { mutuals: FriendEntry[] }) {
+  const names = mutuals.map((m) => (m.username ? `@${m.username}` : m.name));
+  const shown = names.slice(0, 2);
+  const extra = names.length - shown.length;
+  const text =
+    extra > 0 ? `${shown.join(", ")} +${extra} other${extra === 1 ? "" : "s"}` : shown.join(" and ");
+  return (
+    <p className="text-xs text-neutral-500 dark:text-neutral-400">
+      <span className="text-neutral-400 dark:text-neutral-500">Friends with </span>
+      {text}
+    </p>
   );
 }
 

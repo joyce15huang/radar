@@ -56,3 +56,23 @@ export function dedupKey(input: {
   const day = ymd(input.opensAt) || ymd(input.expiresAt) || "undated";
   return [normalize(input.title), day, normalizeLocation(input.location)].join("|");
 }
+
+/**
+ * A LOOSER, semantic identity that survives different headlines from different
+ * outlets: the model's canonical topic slug scoped to the event's MONTH
+ * (YYYY-MM, from the source date). "Perseids fading fast" and "Last night for
+ * the Perseids" both resolve to e.g. "perseids meteor shower|2025-08", so the
+ * same real event is never re-shown from a second source — even on another day.
+ * Null when the card carries no topic slug (then only the title dedupKey applies).
+ */
+export function topicKey(input: {
+  topicKey?: string | null;
+  opensAt?: string | null;
+  expiresAt?: string | null;
+}): string | null {
+  const base = input.topicKey ? normalize(input.topicKey) : "";
+  if (!base) return null;
+  const day = ymd(input.opensAt) || ymd(input.expiresAt);
+  const ym = day ? day.slice(0, 7) : "undated";
+  return `${base}|${ym}`;
+}

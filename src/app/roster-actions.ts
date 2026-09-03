@@ -45,14 +45,15 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
 
   const { data: ev } = await admin
     .from("events")
-    .select("creator_id")
+    .select("creator_id, fee_cents")
     .eq("id", eventId)
     .maybeSingle();
   const hostId = (ev?.creator_id as string | undefined) ?? undefined;
+  const hasFee = ((ev?.fee_cents as number | null) ?? 0) > 0;
 
   const { data: cardRows } = await admin
     .from("cards")
-    .select("user_id, status")
+    .select("user_id, status, content")
     .eq("event_id", eventId)
     .eq("type", "social_invite");
   const rows = cardRows ?? [];
@@ -74,14 +75,18 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
   const going: Attendee[] = [];
   const invited: Attendee[] = [];
   const seen = new Set<string>();
+  let paidCount = 0;
   for (const r of rows) {
     const uid = r.user_id as string;
     if (seen.has(uid)) continue;
     seen.add(uid);
     const name = nameById.get(uid) ?? "Someone";
     const isHost = !!hostId && uid === hostId;
-    if (r.status === "accepted") going.push({ id: uid, name, status: "going", isHost });
-    else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost });
+    const content = (r.content ?? {}) as Record<string, string | null>;
+    const feePaid = content.feePaid === "true";
+    if (feePaid) paidCount += 1;
+    if (r.status === "accepted") going.push({ id: uid, name, status: "going", isHost, feePaid });
+    else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost, feePaid });
     // dismissed = declined → not shown
   }
 
@@ -90,5 +95,12 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
 
   if (going.length === 0 && invited.length === 0) return null;
 
-  return { going, invited, goingCount: going.length, invitedCount: invited.length };
+  return {
+    going,
+    invited,
+    goingCount: going.length,
+    invitedCount: invited.length,
+    hasFee,
+    paidCount,
+  };
 }

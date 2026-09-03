@@ -81,6 +81,13 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         opensAt: c.opensAt ?? undefined,
         category: (c.category as CategoryKey) ?? undefined,
         allowReinvite: c.allowReinvite === "true",
+        fee: c.fee && Number.isFinite(Number(c.fee)) ? Number(c.fee) : undefined,
+        paymentLink: c.paymentLink ?? undefined,
+        venmoId: c.venmoId ?? undefined,
+        zelleId: c.zelleId ?? undefined,
+        feePaid: c.feePaid === "true",
+        broadcast: c.broadcast === "true",
+        senderId: row.sender_id ?? undefined,
       };
 
     case "calendar_radar":
@@ -126,6 +133,17 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         eventTitle: c.eventTitle ?? undefined,
       };
     }
+
+    case "time_poll":
+      return {
+        ...base,
+        type: "time_poll",
+        senderName: c.senderName ?? "A friend",
+        title: row.title ?? "Find a time",
+        pollId: c.pollId ?? "",
+        optionCount:
+          c.optionCount && Number.isFinite(Number(c.optionCount)) ? Number(c.optionCount) : undefined,
+      };
 
     default:
       return null;

@@ -6,6 +6,8 @@ import {
   Clock,
   Image as ImageIcon,
   PencilLine,
+  CalendarClock,
+  Megaphone,
   type LucideIcon,
 } from "lucide-react";
 import type { CardType } from "./types";
@@ -68,6 +70,20 @@ export const CARD_TYPES: Record<CardType, CardTypeMeta> = {
     chipClass:
       "bg-violet-50 text-violet-700 ring-violet-200/70 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-400/20",
     railClass: "bg-violet-400/80",
+  },
+  time_poll: {
+    label: "Find a time",
+    icon: CalendarClock,
+    chipClass:
+      "bg-teal-50 text-teal-700 ring-teal-200/70 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-400/20",
+    railClass: "bg-teal-400/80",
+  },
+  broadcast_bundle: {
+    label: "Broadcast",
+    icon: Megaphone,
+    chipClass:
+      "bg-teal-50 text-teal-700 ring-teal-200/70 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-400/20",
+    railClass: "bg-teal-400/80",
   },
 };
 

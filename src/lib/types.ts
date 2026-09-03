@@ -25,7 +25,9 @@ export type CardType =
   | "time_window" // an expiring opportunity with a deadline (the "Time" axis)
   | "calendar_radar" // the user's own upcoming schedule
   | "social_post" // a friend's photo post shared to an event's attendees
-  | "event_update"; // a "details updated" heads-up when the host edits an event
+  | "event_update" // a "details updated" heads-up when the host edits an event
+  | "time_poll" // a host's "find a time" availability poll
+  | "broadcast_bundle"; // synthetic: N broadcasts from one source, collapsed
 
 interface CardBase {
   id: string;
@@ -68,6 +70,20 @@ export interface SocialInviteCard extends CardBase {
   category?: CategoryKey;
   /** Host allows guests to invite others. */
   allowReinvite?: boolean;
+  /** Participation fee in integer cents (host-set); undefined = free. */
+  fee?: number;
+  /** Host's payment deep-link (legacy). The app processes no real money. */
+  paymentLink?: string;
+  /** Host's Venmo username (no @). */
+  venmoId?: string;
+  /** Host's Zelle id (email or phone). */
+  zelleId?: string;
+  /** Whether THIS attendee has tapped "I've paid". */
+  feePaid?: boolean;
+  /** True when this invite is a public follower broadcast (for deck bundling). */
+  broadcast?: boolean;
+  /** The sender's profile id (for grouping broadcasts + linking to them). */
+  senderId?: string;
 }
 
 export interface NewsScoutCard extends CardBase {
@@ -142,6 +158,34 @@ export interface EventUpdateCard extends CardBase {
   eventId?: string;
 }
 
+export interface TimePollCard extends CardBase {
+  type: "time_poll";
+  /** Who's asking. */
+  senderName: string;
+  /** The draft event's title. */
+  title: string;
+  /** The poll to open and respond to. */
+  pollId: string;
+  /** How many times were proposed. */
+  optionCount?: number;
+}
+
+/**
+ * A synthetic card built at deck-assembly time (not stored): several follower
+ * broadcasts from ONE source collapsed into one, so a public poster can't flood
+ * the deck. Dismissing it dismisses all the underlying cards.
+ */
+export interface BroadcastBundleCard extends CardBase {
+  type: "broadcast_bundle";
+  senderId: string;
+  senderName: string;
+  count: number;
+  /** The bundled event titles, for a preview list. */
+  titles: string[];
+  /** The real card ids this bundle stands in for. */
+  cardIds: string[];
+}
+
 /** The discriminated union the feed renders. */
 export type DigestCardData =
   | SocialPingCard
@@ -150,4 +194,6 @@ export type DigestCardData =
   | TimeWindowCard
   | CalendarRadarCard
   | SocialPostCard
-  | EventUpdateCard;
+  | EventUpdateCard
+  | TimePollCard
+  | BroadcastBundleCard;

@@ -1,49 +1,51 @@
-// Shared types for the 2-way friendship feature. Kept tiny and UI-facing so
-// both the Friends page and the profile FriendButton render against one shape.
+// Shared types for the FRIENDS graph — Facebook-style, mutual, request/accept.
+// (The one-way Follow graph is parked for the public-accounts roadmap.)
 
-/**
- * The viewer's relationship to another user.
- * - `none`     — no relationship (or a previously declined one, treated as none)
- * - `friends`  — accepted friendship
- * - `outgoing` — the viewer sent a request that's still pending
- * - `incoming` — the other user sent the viewer a request that's still pending
- * - `self`     — the other user IS the viewer
- */
-export type FriendshipStatus = "none" | "friends" | "outgoing" | "incoming" | "self";
-
-export interface FriendshipState {
-  status: FriendshipStatus;
-  /** The friendships row id, present for every status except `none` and `self`. */
-  friendshipId?: string;
+/** A pickable person for a recipient picker — one of your friends. */
+export interface FriendOption {
+  id: string;
+  username: string;
+  /** Used under the hood to address a card; resolved server-side. */
+  email: string;
 }
 
-/** A resolved friend or pending-request entry for list rendering. */
+/** A row in a Friends list. */
 export interface FriendEntry {
-  friendshipId: string;
-  /** The other user's auth id. */
-  userId: string;
-  /** The other user's @handle. May be empty for an optimistic/legacy entry. */
+  /** The other person's profile id. */
+  id: string;
   username: string;
   email: string;
-  /** Display name derived from the username (or email local-part as fallback). */
+  /** Display name (username, else email local-part). */
   name: string;
 }
 
-/** A pickable accepted-friend for the invite autocomplete. */
-export interface FriendOption {
-  /** The friend's user id. */
+/** An incoming friend request (someone who wants to be your friend). */
+export interface FriendRequestEntry {
+  /** The requester's profile id. */
   id: string;
   username: string;
-  /** Used under the hood to address the invite (resolved server-side). */
   email: string;
+  name: string;
+}
+
+/** The viewer's friendship status toward another profile. */
+export type FriendStatus =
+  | "self"
+  | "none"
+  | "outgoing" // you sent a request, awaiting them
+  | "incoming" // they sent you a request, awaiting you
+  | "friends";
+
+export interface FriendState {
+  status: FriendStatus;
 }
 
 /** Result shape returned by every friend action. */
-export interface FriendActionResult {
+export interface FriendResult {
   ok: boolean;
   error?: string;
-  /** True when a send immediately became a friendship (a reverse request existed). */
-  autoAccepted?: boolean;
-  /** True when the target email isn't a registered user yet. */
+  /** True when the handle didn't resolve to a registered profile. */
   notFound?: boolean;
+  /** The status the viewer is now in toward the target (for optimistic UI). */
+  status?: FriendStatus;
 }

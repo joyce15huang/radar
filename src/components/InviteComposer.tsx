@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Send, Loader2, Check, Users } from "lucide-react";
 import { inviteToEvent } from "@/app/event-actions";
-import { listMyAcceptedFriends } from "@/app/friends-actions";
+import { listFriendOptions } from "@/app/friends-actions";
 import { FriendPicker } from "@/components/FriendPicker";
 import type { FriendOption } from "@/lib/friends";
 
@@ -20,27 +20,32 @@ export function InviteComposer({
   target,
   canSetReinvite,
   initialAllowReinvite = false,
+  heading = "Invite friends",
   onClose,
 }: {
   eventTitle: string;
   target: Target;
   canSetReinvite: boolean;
   initialAllowReinvite?: boolean;
+  /** Modal title — e.g. "Make it a shared event" when promoting a personal item. */
+  heading?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
+  // A "source" target means we're PROMOTING a personal item into a shared event.
+  const isPromote = target.kind === "source";
   const [friends, setFriends] = useState<FriendOption[]>([]);
   const [selected, setSelected] = useState<FriendOption[]>([]);
   const [note, setNote] = useState("");
   const [allowReinvite, setAllowReinvite] = useState(initialAllowReinvite);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ sent: number; notFound: string[] } | null>(null);
+  const [result, setResult] = useState<{ sent: number; notFound: string[]; eventId?: string } | null>(null);
 
-  // Load the friend pool for the autocomplete once, on open.
+  // Load your friends for the autocomplete once, on open.
   useEffect(() => {
     let active = true;
-    listMyAcceptedFriends()
+    listFriendOptions()
       .then((list) => {
         if (active) setFriends(list);
       })
@@ -72,7 +77,7 @@ export function InviteComposer({
       setError(res.error ?? "Couldn't send the invite.");
       return;
     }
-    setResult({ sent: res.sent ?? 0, notFound: res.notFound ?? [] });
+    setResult({ sent: res.sent ?? 0, notFound: res.notFound ?? [], eventId: res.eventId });
     router.refresh();
   }
 
@@ -86,7 +91,7 @@ export function InviteComposer({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">Invite friends</h2>
+          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">{heading}</h2>
           <button
             type="button"
             onClick={onClose}
@@ -106,21 +111,34 @@ export function InviteComposer({
               <Check className="h-7 w-7" strokeWidth={2.5} />
             </div>
             <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-              {result.sent > 0 ? "Invite sent" : "No new invites"}
+              {isPromote ? "Now a shared event" : result.sent > 0 ? "Invite sent" : "No new invites"}
             </h3>
             <p className="mt-1 max-w-xs text-sm text-neutral-500 dark:text-neutral-400">
+              {isPromote && `You're hosting it${result.sent > 0 ? " — " : "."}`}
               {result.sent > 0
-                ? `It's on top of ${result.sent} friend${result.sent === 1 ? "'s" : "s'"} Today deck.`
-                : "Everyone you listed is already on the guest list."}
+                ? `it's on top of ${result.sent} friend${result.sent === 1 ? "'s" : "s'"} Today deck.`
+                : isPromote
+                  ? ""
+                  : "Everyone you listed is already on the guest list."}
               {result.notFound.length > 0 && ` Not on the app yet: ${result.notFound.join(", ")}.`}
             </p>
-            <button
-              type="button"
-              onClick={onClose}
-              className="mt-6 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-            >
-              Done
-            </button>
+            {isPromote && result.eventId ? (
+              <button
+                type="button"
+                onClick={() => router.push(`/event/${result.eventId}`)}
+                className="mt-6 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+              >
+                Open event page
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-6 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+              >
+                Done
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-3">

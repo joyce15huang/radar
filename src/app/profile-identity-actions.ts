@@ -22,7 +22,7 @@ export async function saveProfile(input: {
 }): Promise<SaveProfileResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
-  const { supabase, actorId } = actor;
+  const { supabase, actorId, userId } = actor;
 
   const links: Record<string, string> = {};
   if (input.website?.trim()) links.website = normUrl(input.website.trim());
@@ -31,6 +31,10 @@ export async function saveProfile(input: {
 
   const patch: Record<string, unknown> = {
     id: actorId,
+    // Required by the profiles RLS WITH CHECK (owner_id = auth.uid()). Upsert
+    // evaluates the INSERT check against the proposed row even when it resolves
+    // to an update, so owner_id must be present or the write is rejected.
+    owner_id: userId,
     display_name: input.displayName?.trim() || null,
     bio: input.bio?.trim() || null,
     links,

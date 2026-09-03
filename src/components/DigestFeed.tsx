@@ -28,10 +28,18 @@ export function DigestFeed({ initialCards, dateLabel, dateSub, persist = false, 
   const remaining = cards.length;
 
   const handleResolve = (id: string, status: ResolveStatus) => {
+    const card = cards.find((c) => c.id === id);
     setCards((prev) => prev.filter((c) => c.id !== id));
     if (status === "saved") setSaved((n) => n + 1);
     if (status === "accepted") setAccepted((n) => n + 1);
-    if (persist) void updateCardStatus(id, status);
+    if (persist) {
+      if (card && card.type === "broadcast_bundle") {
+        // A bundle stands in for several real cards — resolve them all.
+        for (const cid of card.cardIds) void updateCardStatus(cid, status);
+      } else {
+        void updateCardStatus(id, status);
+      }
+    }
   };
 
   return (

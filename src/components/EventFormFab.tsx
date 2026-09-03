@@ -2,7 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Loader2, Check, CalendarPlus } from "lucide-react";
+import {
+  Plus,
+  X,
+  Loader2,
+  Check,
+  CalendarPlus,
+  ArrowLeft,
+  Lock,
+  Users,
+  UsersRound,
+  ChevronRight,
+} from "lucide-react";
 import { confirmSchedule } from "@/app/schedule-actions";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
@@ -12,7 +23,7 @@ const inputCls =
 
 function todayValue(tz: string): DTValue {
   const now = new Date().toISOString();
-  return { date: localFromIso(now, tz)?.date ?? now.slice(0, 10), time: null };
+  return { date: localFromIso(now, tz)?.date ?? now.slice(0, 10), time: "18:00" };
 }
 
 /**
@@ -25,6 +36,7 @@ export function EventFormFab() {
   const router = useRouter();
   const tz = clientTimeZone();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<null | "private">(null);
   const [title, setTitle] = useState("");
   const [dt, setDt] = useState<DTValue>(() => todayValue(tz));
   const [location, setLocation] = useState("");
@@ -82,9 +94,10 @@ export function EventFormFab() {
             type="button"
             onClick={() => {
               reset();
+              setMode(null);
               setOpen(true);
             }}
-            aria-label="Add an event"
+            aria-label="Create an event"
             className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-black/20 transition hover:scale-105 hover:bg-neutral-700 active:scale-95 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
           >
             <Plus className="h-6 w-6" strokeWidth={2.5} />
@@ -103,8 +116,23 @@ export function EventFormFab() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-                <CalendarPlus className="h-5 w-5 text-neutral-400" />
-                Add an event
+                {mode === "private" ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => !pending && setMode(null)}
+                      aria-label="Back"
+                      className="-ml-1 rounded-full p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                    </button>
+                    <Lock className="h-5 w-5 text-neutral-400" /> Private event
+                  </>
+                ) : (
+                  <>
+                    <CalendarPlus className="h-5 w-5 text-neutral-400" /> Create
+                  </>
+                )}
               </h2>
               <button
                 type="button"
@@ -138,6 +166,25 @@ export function EventFormFab() {
                     Done
                   </button>
                 </div>
+              </div>
+            ) : mode === null ? (
+              <div className="space-y-2">
+                <TypeItem
+                  icon={Lock}
+                  title="Private event"
+                  sub="Just for your calendar"
+                  onClick={() => setMode("private")}
+                />
+                <TypeItem
+                  icon={Users}
+                  title="Group event"
+                  sub="Invite people, or find a time"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push("/poll/new");
+                  }}
+                />
+                <TypeItem icon={UsersRound} title="Team event" sub="RSVP for a saved roster" soon />
               </div>
             ) : (
               <form onSubmit={submit} className="space-y-3">
@@ -206,5 +253,44 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">{label}</span>
       {children}
     </label>
+  );
+}
+
+function TypeItem({
+  icon: Icon,
+  title,
+  sub,
+  onClick,
+  soon = false,
+}: {
+  icon: typeof Lock;
+  title: string;
+  sub: string;
+  onClick?: () => void;
+  soon?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={soon}
+      className="flex w-full items-center gap-3 rounded-2xl border border-neutral-200 px-4 py-3 text-left transition hover:bg-neutral-50 disabled:cursor-default disabled:opacity-55 dark:border-neutral-800 dark:hover:bg-neutral-800/50"
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-300">
+        <Icon className="h-5 w-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-neutral-900 dark:text-neutral-50">
+          {title}
+          {soon && (
+            <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[0.6rem] font-medium text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+              soon
+            </span>
+          )}
+        </span>
+        <span className="block text-xs text-neutral-500 dark:text-neutral-400">{sub}</span>
+      </span>
+      {!soon && <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300 dark:text-neutral-600" />}
+    </button>
   );
 }

@@ -11,6 +11,8 @@ export interface ProfilePost {
   imageUrl: string | null;
   caption: string | null;
   createdAt: string;
+  /** The date the moment happened (host-picked); falls back to createdAt. */
+  takenOn?: string | null;
   eventTitle?: string | null;
 }
 
@@ -62,7 +64,7 @@ function PostCard({
 }) {
   const meta = CARD_TYPES.social_post;
   const Icon = meta.icon;
-  const date = formatDate(post.createdAt);
+  const date = formatDate(post.takenOn || post.createdAt);
 
   return (
     <article className="relative overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
