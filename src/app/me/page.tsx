@@ -7,7 +7,7 @@ import { type ProfilePost } from "@/components/ProfileWall";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
 import { type HostedEventItem } from "@/components/ProfileEvents";
 import { ProfilePanels } from "@/components/ProfilePanels";
-import { CreateCardFab } from "@/components/CreateCardFab";
+import { PostComposer } from "@/components/PostComposer";
 import { listFriends, listIncomingRequests } from "@/app/friends-actions";
 import { publicImageUrl } from "@/lib/storage";
 
@@ -22,10 +22,17 @@ interface EventRow {
 interface PostRow {
   id: string;
   image_path: string | null;
+  image_paths: string[] | null;
   caption: string | null;
   created_at: string;
   taken_on: string | null;
   events: { title: string } | { title: string }[] | null;
+}
+
+/** All photo URLs on a post: prefer the array, fall back to the legacy single. */
+function postImageUrls(row: { image_paths: string[] | null; image_path: string | null }): string[] {
+  const paths = row.image_paths?.length ? row.image_paths : row.image_path ? [row.image_path] : [];
+  return paths.map((p) => publicImageUrl(p)).filter((u): u is string => !!u);
 }
 
 function eventTitleOf(e: PostRow["events"]): string | null {
@@ -54,7 +61,7 @@ export default async function MyProfilePage({
         .maybeSingle(),
       supabase
         .from("posts")
-        .select("id, image_path, caption, created_at, taken_on, events(title)")
+        .select("id, image_path, image_paths, caption, created_at, taken_on, events(title)")
         .eq("author_id", actorId)
         .order("created_at", { ascending: false }),
       admin
@@ -77,7 +84,7 @@ export default async function MyProfilePage({
     const row = p as unknown as PostRow;
     return {
       id: row.id,
-      imageUrl: publicImageUrl(row.image_path),
+      imageUrls: postImageUrls(row),
       caption: row.caption,
       createdAt: row.created_at,
       takenOn: row.taken_on,
@@ -113,7 +120,7 @@ export default async function MyProfilePage({
           initialTab={wantsFriends ? "friends" : "posts"}
         />
       </div>
-      <CreateCardFab mode="post" />
+      <PostComposer />
     </main>
   );
 }

@@ -5,10 +5,12 @@ import { Trash2, ImageOff } from "lucide-react";
 import { CARD_TYPES } from "@/lib/cardTypes";
 import { deletePost } from "@/app/post-actions";
 import { EmptyState } from "./LibraryWall";
+import { PhotoGallery } from "./PhotoGallery";
 
 export interface ProfilePost {
   id: string;
-  imageUrl: string | null;
+  /** All photos on the post — one renders plain, several become a swipeable gallery. */
+  imageUrls: string[];
   caption: string | null;
   createdAt: string;
   /** The date the moment happened (host-picked); falls back to createdAt. */
@@ -98,13 +100,8 @@ function PostCard({
           </p>
         )}
 
-        {post.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={post.imageUrl}
-            alt={post.caption ?? "Post"}
-            className="w-full rounded-xl border border-neutral-200/70 object-cover dark:border-neutral-800"
-          />
+        {post.imageUrls.length > 0 ? (
+          <PhotoGallery images={post.imageUrls} alt={post.caption ?? "Post"} />
         ) : (
           <div className="flex aspect-video w-full items-center justify-center rounded-xl bg-neutral-100 text-neutral-400 dark:bg-neutral-800">
             <ImageOff className="h-6 w-6" />
