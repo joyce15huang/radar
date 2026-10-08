@@ -7,8 +7,8 @@ import { Newspaper, Calendar, User } from "lucide-react";
 import { pendingRequestCount } from "@/app/friends-actions";
 
 const TABS = [
-  { href: "/", label: "Today", icon: Newspaper },
   { href: "/calendar", label: "Calendar", icon: Calendar },
+  { href: "/", label: "Today", icon: Newspaper },
   { href: "/me", label: "Profile", icon: User },
 ];
 

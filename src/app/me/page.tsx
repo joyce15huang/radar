@@ -26,6 +26,7 @@ interface PostRow {
   caption: string | null;
   created_at: string;
   taken_on: string | null;
+  event_id: string | null;
   events: { title: string } | { title: string }[] | null;
 }
 
@@ -61,7 +62,7 @@ export default async function MyProfilePage({
         .maybeSingle(),
       supabase
         .from("posts")
-        .select("id, image_path, image_paths, caption, created_at, taken_on, events(title)")
+        .select("id, image_path, image_paths, caption, created_at, taken_on, event_id, events(title)")
         .eq("author_id", actorId)
         .order("created_at", { ascending: false }),
       admin
@@ -89,6 +90,7 @@ export default async function MyProfilePage({
       createdAt: row.created_at,
       takenOn: row.taken_on,
       eventTitle: eventTitleOf(row.events),
+      eventId: row.event_id,
     };
   });
 

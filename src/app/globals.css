@@ -24,3 +24,6 @@ body {
     background-clip: content-box;
   }
 }
+
+/* Light-only for now (dark: variants are gated behind an unused .dark class). */
+html { color-scheme: light; }
