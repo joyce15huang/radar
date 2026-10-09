@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { serverTimeZone } from "@/lib/tz";
 import { TabNav } from "@/components/TabNav";
+import { InstallPrompt } from "@/components/InstallPrompt";
 import { CalendarView } from "@/components/CalendarView";
 import { EventFormFab } from "@/components/EventFormFab";
 import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
@@ -56,6 +57,7 @@ export default async function CalendarPage() {
     <main className="min-h-dvh bg-linen">
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-44 pt-6 sm:px-6 sm:pt-10">
         <TabNav />
+        <InstallPrompt />
         <header className="mb-4">
           <p className="text-[13px] font-medium text-neutral-500">{monthLabel}</p>
           <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">Calendar</h1>

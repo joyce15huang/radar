@@ -16,6 +16,8 @@ export default async function NewGroupEventPage({
   if (!actor) redirect("/login");
   const { type } = await searchParams;
   const isPublic = type === "public";
+  // Group events now use the New plan composer; this page stays for Public broadcasts.
+  if (!isPublic) redirect("/plan/new");
   const followerCount = isPublic ? await myFollowerCount() : 0;
 
   return (

@@ -1,7 +1,7 @@
 // Minimal PWA service worker: makes the app installable and gives a graceful
 // offline page. HTML/navigations are network-first (never serve stale SSR);
 // content-hashed static assets are cached-first.
-const CACHE = "pdd-v2";
+const CACHE = "pdd-v3";
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icon-192.png"];
 

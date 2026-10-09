@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus } from "lucide-react";
+import { Send } from "lucide-react";
 import { GuestFaces } from "./GuestFaces";
 import { InviteComposer } from "./InviteComposer";
 
@@ -12,14 +12,12 @@ export function PeopleSection({
   eventId,
   eventTitle,
   canInvite,
-  isHost,
-  allowReinvite,
 }: {
   eventId: string;
   eventTitle: string;
   canInvite: boolean;
-  isHost: boolean;
-  allowReinvite: boolean;
+  isHost?: boolean;
+  allowReinvite?: boolean;
 }) {
   const router = useRouter();
   const [inviting, setInviting] = useState(false);
@@ -34,7 +32,7 @@ export function PeopleSection({
             onClick={() => setInviting(true)}
             className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
           >
-            <UserPlus className="h-4 w-4" /> Invite
+            <Send className="h-4 w-4" /> Invite
           </button>
         )}
       </div>
@@ -47,8 +45,6 @@ export function PeopleSection({
         <InviteComposer
           eventTitle={eventTitle}
           target={{ kind: "event", eventId }}
-          canSetReinvite={isHost}
-          initialAllowReinvite={allowReinvite}
           onClose={() => {
             setInviting(false);
             router.refresh();

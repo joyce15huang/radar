@@ -149,7 +149,15 @@ export async function createDirectEvent(input: {
     .single();
   if (evErr || !event) return { ok: false, error: evErr?.message ?? "Couldn't create the event." };
 
-  const content: Record<string, string> = { senderName: senderNameOf(actor), eventTime };
+  const hostName = senderNameOf(actor);
+  // hostId/hostName mark who owns the event (only they can edit) on every copy.
+  const content: Record<string, string> = {
+    senderName: hostName,
+    hostId: actor.actorId,
+    hostName,
+    eventTime,
+    allowReinvite: "false",
+  };
   if (input.startsAt) content.startsAt = input.startsAt;
   if (input.location?.trim()) content.location = input.location.trim();
   if (input.note?.trim()) content.note = input.note.trim();
@@ -157,8 +165,18 @@ export async function createDirectEvent(input: {
   if (input.venmoId?.trim()) content.venmoId = input.venmoId.trim();
   if (input.zelleId?.trim()) content.zelleId = input.zelleId.trim();
 
-  const { error } = await admin.from("cards").insert(
-    recipientIds.map((rid) => ({
+  const { error } = await admin.from("cards").insert([
+    // The host's own copy, so the event is on their calendar too.
+    {
+      user_id: actor.actorId,
+      sender_id: actor.actorId,
+      type: "social_invite",
+      title,
+      content,
+      status: "accepted",
+      event_id: event.id,
+    },
+    ...recipientIds.map((rid) => ({
       user_id: rid,
       sender_id: actor.actorId,
       type: "social_invite",
@@ -167,8 +185,9 @@ export async function createDirectEvent(input: {
       status: "pending",
       event_id: event.id,
     })),
-  );
+  ]);
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/calendar");
   return { ok: true, eventId: event.id as string };
 }
 

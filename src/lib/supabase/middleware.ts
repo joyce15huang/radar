@@ -42,13 +42,23 @@ export async function updateSession(request: NextRequest) {
     path.startsWith("/api") || // API routes do their own auth (e.g. CRON_SECRET)
     path.startsWith("/_next") ||
     path === "/favicon.ico";
-  const isPublic = path.startsWith("/login") || isAuthOrInternal;
+  // PWA files must load without cookies (browsers fetch the manifest with no
+  // credentials) — gating them broke "Install app".
+  const isPwaAsset =
+    path === "/manifest.webmanifest" || path === "/sw.js" || path === "/offline.html" || path === "/robots.txt";
+  // Short invite links preview publicly so new people can see what they're joining.
+  const isInviteLink = path.startsWith("/i/");
+  const isPublic = path.startsWith("/login") || isAuthOrInternal || isPwaAsset || isInviteLink;
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    // Come back here after signing in (deep links, shared event pages).
+    if (path !== "/" && path !== "/calendar") url.searchParams.set("next", path + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
+  if (isPwaAsset) return supabaseResponse;
 
   // Username gate: a signed-in user with no username must onboard first. We check
   // the profile once per app navigation (skipped for auth/internal + the
@@ -64,6 +74,9 @@ export async function updateSession(request: NextRequest) {
     if (!profile?.username && !onOnboarding) {
       const url = request.nextUrl.clone();
       url.pathname = "/onboarding";
+      url.search = "";
+      // Keep where they were headed (e.g. an invite link) for after the username step.
+      if (path !== "/" && path !== "/calendar") url.searchParams.set("next", path + request.nextUrl.search);
       return NextResponse.redirect(url);
     }
     if (profile?.username && onOnboarding) {

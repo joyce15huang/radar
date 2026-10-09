@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { safeNext } from "@/lib/safeNext";
 import { AtSign, Loader2, Check, ArrowRight } from "lucide-react";
 import { setUsername } from "@/app/username-actions";
 import { validateUsername, normalizeUsername } from "@/lib/username";
@@ -44,7 +45,8 @@ export function UsernameForm({
       return;
     }
     if (mode === "onboarding") {
-      router.replace("/calendar");
+      // Continue to wherever they were headed (e.g. an invite link).
+      router.replace(safeNext(new URLSearchParams(window.location.search).get("next")));
       router.refresh();
     } else {
       setSaved(true);

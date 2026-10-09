@@ -3,6 +3,7 @@
 import { PreferencesForm } from "./PreferencesForm";
 import { ProfileForm, type ProfileInitial } from "./ProfileForm";
 import { ProfileSwitcher } from "./ProfileSwitcher";
+import { PasswordForm } from "./PasswordForm";
 import type { PersonaSummary } from "@/app/persona-actions";
 
 /** Settings: switch/create personas, your Locations (deck input), and the
@@ -12,10 +13,12 @@ export function SettingsPanel({
   personas,
   profileInitial,
   prefsInitial,
+  email,
 }: {
   personas: PersonaSummary[];
   profileInitial: ProfileInitial;
   prefsInitial: { locations: string[] };
+  email?: string;
 }) {
   return (
     <div className="space-y-8">
@@ -38,6 +41,13 @@ export function SettingsPanel({
           Public profile
         </h2>
         <ProfileForm initial={profileInitial} />
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+          Password
+        </h2>
+        <PasswordForm email={email} />
       </section>
     </div>
   );

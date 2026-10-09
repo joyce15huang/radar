@@ -42,7 +42,7 @@ export default async function SettingsPage() {
             Settings
           </h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Switch profiles, set your locations, and edit your public profile.
+            Profiles, locations, public profile, and your password.
           </p>
         </header>
 
@@ -50,6 +50,7 @@ export default async function SettingsPage() {
           personas={personas}
           profileInitial={profileInitial}
           prefsInitial={{ locations: (prefs?.locations as string[] | null) ?? [] }}
+          email={actor.userEmail ?? undefined}
         />
       </div>
     </main>

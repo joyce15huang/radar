@@ -660,3 +660,21 @@ function initialPickerValue(card: Scouted): DTValue {
   const today = localFromIso(new Date().toISOString(), tz)?.date ?? "";
   return { date: today, time: null };
 }
+
+/* ------------------------- scouted → calendar helpers ------------------------ */
+
+/** True when a discovered card carries (or implies) a date we can put on the calendar. */
+export function scoutHasDate(card: DigestCardData): boolean {
+  if (card.type === "time_window") return true;
+  if (card.type === "news_scout") return guessDateTime(`${card.title}. ${card.summary}`) !== null;
+  return false;
+}
+
+/** One-tap "Add to calendar" for a discovered card, using its best-known date/time. */
+export async function addScoutWithBestGuess(card: DigestCardData): Promise<{ ok: boolean; error?: string }> {
+  if (card.type !== "news_scout" && card.type !== "time_window") return { ok: false, error: "Not a discovered event." };
+  const v = initialPickerValue(card);
+  const iso = v.date ? isoFromLocal(v.date, v.time, clientTimeZone()) : null;
+  if (!iso) return { ok: false, error: "Couldn't work out a date." };
+  return addScoutedToCalendar({ id: card.id, startsAt: iso, hasTime: v.time !== null });
+}

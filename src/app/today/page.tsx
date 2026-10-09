@@ -20,7 +20,7 @@ export default async function TodayPage() {
   // Friend/calendar cards have a null prune_at and always pass this filter.
   const startISO = startOfTodayISO();
 
-  const [{ data: rows, error: cardsError }, { data: prefs }, { data: acceptedRows }] =
+  const [{ data: rows, error: cardsError }, { data: handledRows }, { data: prefs }, { data: acceptedRows }] =
     await Promise.all([
       supabase
         .from("cards")
@@ -28,6 +28,15 @@ export default async function TodayPage() {
         .eq("user_id", actorId)
         .eq("status", "pending")
         .or(`prune_at.is.null,prune_at.gt.${startISO}`)
+        .order("created_at", { ascending: true }),
+      // Cards that arrived today and were already handled — kept in the deck so
+      // you can flip back to them instead of them vanishing.
+      supabase
+        .from("cards")
+        .select(CARD_SELECT)
+        .eq("user_id", actorId)
+        .in("status", ["saved", "dismissed", "accepted"])
+        .gte("created_at", startISO)
         .order("created_at", { ascending: true }),
       supabase
         .from("preferences")
@@ -56,7 +65,18 @@ export default async function TodayPage() {
   // timezone, so yesterday's events fall off the feed the moment the date rolls
   // over — no nightly job required.
   const nowMs = Date.now();
-  const mapped = (rows ?? [])
+  // Only things that came TO you belong in the deck — not plans you made
+  // yourself (quick-adds, events you host), which are also created "today".
+  const handled = (handledRows ?? []).filter((r) => {
+    const row = r as CardRow;
+    if (row.sender_id === actorId) return false;
+    const c = (row.content ?? {}) as Record<string, unknown>;
+    if (row.type === "social_invite" && c.hostId === actorId) return false;
+    // A personal entry only counts if it was a discovered card you added.
+    if (row.type === "calendar_radar" && !c.sourceUrl) return false;
+    return true;
+  });
+  const mapped = [...handled, ...(rows ?? [])]
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)
     .filter((c) => !isPastCard(c, nowMs, APP_TZ));
@@ -108,7 +128,7 @@ function bundleBroadcasts(cards: DigestCardData[]): DigestCardData[] {
   const bySender = new Map<string, DigestCardData[]>();
   const rest: DigestCardData[] = [];
   for (const c of cards) {
-    if (c.type === "social_invite" && c.broadcast && c.senderId) {
+    if (c.type === "social_invite" && c.broadcast && c.senderId && c.status === "pending") {
       const arr = bySender.get(c.senderId) ?? [];
       arr.push(c);
       bySender.set(c.senderId, arr);

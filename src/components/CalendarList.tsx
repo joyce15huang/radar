@@ -9,7 +9,7 @@ import {
   Pencil,
   Loader2,
   Check,
-  UserPlus,
+  Send,
   Crown,
   Users,
   DollarSign,
@@ -461,7 +461,7 @@ function EventPopup({
     if (canInvite)
       actions.push({
         label: isPromote ? "Invite friends" : "Invite more friends",
-        icon: UserPlus,
+        icon: Send,
         onClick: () => setInviting(true),
         tone: "primary",
       });
@@ -622,9 +622,6 @@ function EventPopup({
           <InviteComposer
             eventTitle={title}
             target={inviteTarget}
-            canSetReinvite={isPromote || isHost}
-            initialAllowReinvite={allowReinvite}
-            heading={isPromote ? "Invite friends" : "Invite more friends"}
             onClose={() => setInviting(false)}
           />
         </div>
