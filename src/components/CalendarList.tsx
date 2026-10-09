@@ -1,27 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
-  X,
   MapPin,
   Calendar as CalendarIcon,
   Hourglass,
-  Sun,
   ArrowUpRight,
   Pencil,
-  ChevronDown,
-  ChevronUp,
-  ChevronRight,
   Loader2,
   Check,
   UserPlus,
   Crown,
   Users,
   DollarSign,
-  MoreHorizontal,
   Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import type {
   DigestCardData,
   SocialInviteCard,
@@ -58,22 +54,12 @@ export function CalendarList({
   viewerId: string;
 }) {
   const [cards, setCards] = useState(initial);
-  // Expand state lives here (not per-row) so one control can collapse them all.
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-
-  const setCardExpanded = (id: string, next: boolean) =>
-    setExpandedIds((prev) => {
-      const n = new Set(prev);
-      if (next) n.add(id);
-      else n.delete(id);
-      return n;
-    });
-  const collapseAll = () => setExpandedIds(new Set());
-  const anyExpanded = expandedIds.size > 0;
+  // One card open at a time — tapping another closes the previous.
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const remove = (id: string) => {
     setCards((prev) => prev.filter((c) => c.id !== id));
-    setCardExpanded(id, false);
+    setOpenId((cur) => (cur === id ? null : cur));
     void updateCardStatus(id, "dismissed");
   };
 
@@ -98,7 +84,7 @@ export function CalendarList({
       <EmptyState
         icon={<CalendarIcon className="h-7 w-7" strokeWidth={2} />}
         title="No events yet"
-        body="RSVP 'Going' to an invite, or add a schedule card to your calendar, and it'll show up here."
+        body="Add a plan above, or say Going to an invite, and it'll show up here."
       />
     );
   }
@@ -108,44 +94,27 @@ export function CalendarList({
   const groups = groupByDay(cards, tz, variant === "past");
 
   return (
-    <div>
-      {anyExpanded && (
-        <div className="mb-3 flex justify-end">
-          <button
-            type="button"
-            onClick={collapseAll}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-          >
-            <ChevronUp className="h-3.5 w-3.5" strokeWidth={2.25} />
-            Collapse all
-          </button>
-        </div>
-      )}
-
-      <div className="space-y-5">
-        {groups.map((g) => (
-          <section key={g.key}>
-            <h3 className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-              {g.label}
-            </h3>
-            <div className="space-y-2">
-              {g.cards.map((card) => (
-                <EventRow
-                  key={card.id}
-                  card={card}
-                  past={variant === "past"}
-                  tz={tz}
-                  viewerId={viewerId}
-                  expanded={expandedIds.has(card.id)}
-                  onExpandedChange={(next) => setCardExpanded(card.id, next)}
-                  onRemove={() => remove(card.id)}
-                  onUpdate={apply}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <section key={g.key} id={`day-${g.key}`} className="scroll-mt-4">
+          <h3 className="mb-2 px-1 text-[13px] font-semibold text-neutral-600">{g.label}</h3>
+          <div className="space-y-2">
+            {g.cards.map((card) => (
+              <EventRow
+                key={card.id}
+                card={card}
+                past={variant === "past"}
+                tz={tz}
+                viewerId={viewerId}
+                expanded={openId === card.id}
+                onToggle={() => setOpenId((cur) => (cur === card.id ? null : card.id))}
+                onRemove={() => remove(card.id)}
+                onUpdate={apply}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
@@ -163,14 +132,21 @@ function ymdParts(day: string): { y: number; mo: number; d: number } {
   return { y, mo, d };
 }
 
-/** "Wed · Aug 12" from a YYYY-MM-DD calendar day (tz-independent). */
+/** "Wednesday, Aug 12" from a YYYY-MM-DD calendar day (tz-independent). */
 function dayLabelFromYmd(day: string): string {
   const { y, mo, d } = ymdParts(day);
   if (!y || !mo || !d) return day;
   const dt = new Date(Date.UTC(y, mo - 1, d, 12));
-  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short" }).format(dt);
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long" }).format(dt);
   const md = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(dt);
-  return `${wd} · ${md}`;
+  return `${wd}, ${md}`;
+}
+
+/** Just the weekday ("Thursday") for a YYYY-MM-DD day. */
+function weekdayFromYmd(day: string): string {
+  const { y, mo, d } = ymdParts(day);
+  if (!y || !mo || !d) return "";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "long" }).format(new Date(Date.UTC(y, mo - 1, d, 12)));
 }
 
 /** Bucket cards by their calendar day in tz, preserving the incoming (sorted) order. */
@@ -196,8 +172,8 @@ function groupByDay(cards: DigestCardData[], tz: string, past: boolean): DayGrou
   return order.map((key) => {
     let label: string;
     if (key === "undated") label = "No date yet";
-    else if (key === today) label = "Today";
-    else if (!past && key === tomorrow) label = "Tomorrow";
+    else if (key === today) label = `Today · ${weekdayFromYmd(key)}`;
+    else if (!past && key === tomorrow) label = `Tomorrow · ${weekdayFromYmd(key)}`;
     else if (past && key === yesterday) label = "Yesterday";
     else label = dayLabelFromYmd(key);
     return { key, label, cards: map.get(key)! };
@@ -241,66 +217,67 @@ function shortCountdown(card: TimeWindowCard): string {
  * short countdown for a window.
  */
 function TimeTile({ card, tz }: { card: EventCard; tz: string }) {
-  const tint =
-    card.type === "social_invite"
-      ? "bg-fuchsia-50 text-fuchsia-600 dark:bg-fuchsia-500/10 dark:text-fuchsia-300"
-      : card.type === "time_window"
-        ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300"
-        : "bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300";
-  const tile = `flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl ${tint}`;
-
+  // Agenda time column: "6:00" over "PM", "All day", or a window's time left.
+  let main = "";
+  let sub = "";
   if (card.type === "time_window") {
     const cd = shortCountdown(card);
-    return (
-      <div className={tile}>
-        <Hourglass className="h-4 w-4" strokeWidth={2} />
-        {cd && (
-          <span className="mt-0.5 text-[0.6rem] font-bold uppercase leading-none tracking-wide">{cd}</span>
-        )}
-      </div>
-    );
+    main = cd || "Open";
+    sub = cd && cd !== "ended" && cd !== "soon" ? "left" : "";
+  } else {
+    const hasTime = labelHasTime(card.type === "social_invite" ? card.eventTime : card.time);
+    const t = hasTime ? timeOfDay(card.startsAt, tz) : "";
+    if (t) [main, sub = ""] = t.split(" ");
+    else main = card.startsAt ? "All day" : "—";
   }
-
-  const hasTime = labelHasTime(card.type === "social_invite" ? card.eventTime : card.time);
-  const t = hasTime ? timeOfDay(card.startsAt, tz) : "";
-
-  if (!t) {
-    return (
-      <div className={tile}>
-        {card.startsAt ? (
-          <>
-            <Sun className="h-4 w-4" strokeWidth={2} />
-            <span className="mt-0.5 text-[0.5rem] font-semibold uppercase leading-none tracking-wide">
-              All day
-            </span>
-          </>
-        ) : (
-          <CalendarIcon className="h-4 w-4" strokeWidth={2} />
-        )}
-      </div>
-    );
-  }
-
-  const [hm, mer] = t.split(" ");
   return (
-    <div className={tile}>
-      <span className="text-[0.8rem] font-bold leading-none tabular-nums">{hm}</span>
-      {mer && (
-        <span className="mt-0.5 text-[0.55rem] font-semibold uppercase leading-none tracking-wide">{mer}</span>
-      )}
+    <div className="w-12 shrink-0 pt-3.5 text-right">
+      <p className="text-[13px] font-semibold leading-tight tabular-nums text-neutral-800">{main}</p>
+      {sub && <p className="text-[11px] font-medium uppercase leading-tight text-neutral-500">{sub}</p>}
     </div>
   );
 }
 
 /* -------------------------------- event row ------------------------------- */
 
+interface QuickAction {
+  label: string;
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>;
+  onClick?: () => void;
+  href?: string;
+  tone?: "primary" | "danger";
+}
+
+/** "Sat, Oct 10 · 7:00 PM" (or just the date for an all-day item) in tz. */
+function fullWhen(card: EventCard, tz: string): string {
+  if (card.type === "time_window") return windowStatus({ expiresAt: card.expiresAt, opensAt: card.opensAt })?.label ?? "";
+  const iso = card.startsAt;
+  const label = card.type === "social_invite" ? card.eventTime : card.time;
+  if (!iso || Number.isNaN(Date.parse(iso))) return label ?? "";
+  const d = new Date(iso);
+  const opts = (o: Intl.DateTimeFormatOptions) => {
+    try {
+      return new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o }).format(d);
+    } catch {
+      return new Intl.DateTimeFormat("en-US", o).format(d);
+    }
+  };
+  const date = opts({ weekday: "short", month: "short", day: "numeric" });
+  return labelHasTime(label) ? `${date} · ${opts({ hour: "numeric", minute: "2-digit" })}` : date;
+}
+
+/**
+ * One compact agenda row. Tapping it pops the event up as a card (details +
+ * small icon actions). A pending invite someone sent you carries small
+ * Accept / Decline icons right on the row.
+ */
 function EventRow({
   card,
   past,
   tz,
   viewerId,
   expanded,
-  onExpandedChange,
+  onToggle,
   onRemove,
   onUpdate,
 }: {
@@ -309,19 +286,10 @@ function EventRow({
   tz: string;
   viewerId: string;
   expanded: boolean;
-  onExpandedChange: (next: boolean) => void;
+  onToggle: () => void;
   onRemove: () => void;
   onUpdate: (updated: DigestCardData) => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [inviting, setInviting] = useState(false);
-
-  // Collapsing (including "Collapse all") should drop out of edit mode too — but
-  // personal entries edit inline (no expand), so they're exempt.
-  useEffect(() => {
-    if (!expanded && editing && card.type !== "calendar_radar") setEditing(false);
-  }, [expanded, editing, card.type]);
-
   if (
     card.type !== "social_invite" &&
     card.type !== "calendar_radar" &&
@@ -332,261 +300,357 @@ function EventRow({
 
   const isInvite = card.type === "social_invite";
   const isWindow = card.type === "time_window";
+  const isPending = isInvite && card.status === "pending";
+  const barClass = rowBar(card);
+  const title = isInvite ? card.eventTitle : card.title;
+  const location = !isWindow ? card.location : undefined;
+  const eventId = isInvite ? card.eventId : undefined;
+
+  const respond = (accept: boolean) => {
+    if (!accept) {
+      onRemove(); // persists "dismissed"
+      return;
+    }
+    onUpdate({ ...card, status: "accepted" });
+    void updateCardStatus(card.id, "accepted");
+  };
+
+  // The popup sits outside the (possibly faded) row so it isn't dimmed or
+  // trapped in the row's stacking context.
+  return (
+    <div>
+    <div className={`flex gap-3 ${past ? "opacity-80" : ""}`}>
+      <TimeTile card={card} tz={tz} />
+      <div
+        className={`flex min-w-0 flex-1 items-center overflow-hidden rounded-2xl ${
+          isPending
+            ? "border border-dashed border-fuchsia-300 bg-fuchsia-50/40"
+            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-haspopup="dialog"
+          className="flex min-w-0 flex-1 gap-3 p-3.5 text-left"
+        >
+          <span className={`w-1 shrink-0 self-stretch rounded-full ${barClass}`} aria-hidden />
+          <div className="min-w-0 flex-1">
+            {isPending && (
+              <p className="mb-0.5 text-[12px] font-semibold text-fuchsia-700">
+                {card.senderName} invited you
+              </p>
+            )}
+            <h3 className="text-[15px] font-semibold leading-snug text-neutral-900">{title}</h3>
+            {location && (
+              <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-neutral-600">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{location}</span>
+              </p>
+            )}
+            {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
+            {eventId && !isPending && (
+              <div className="mt-1.5">
+                <GuestFaces eventId={eventId} />
+              </div>
+            )}
+          </div>
+        </button>
+
+        {isPending && !past && (
+          <div className="flex shrink-0 items-center gap-1.5 pr-3">
+            <IconButton label="Decline" icon={X} onClick={() => respond(false)} />
+            <IconButton label="Accept" icon={Check} onClick={() => respond(true)} tone="primary" />
+          </div>
+        )}
+      </div>
+    </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <EventPopup
+            key="popup"
+            card={card}
+            past={past}
+            tz={tz}
+            viewerId={viewerId}
+            onClose={onToggle}
+            onRemove={onRemove}
+            onUpdate={onUpdate}
+            onRespond={respond}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+/** Invites fuchsia (pale while unanswered) · your own plans sky · saved-from-Today amber. */
+function rowBar(card: EventCard): string {
+  if (card.type === "social_invite") return card.status === "pending" ? "bg-fuchsia-300" : "bg-fuchsia-600";
+  return card.type === "calendar_radar" ? "bg-sky-600" : "bg-amber-500";
+}
+
+/** The popped-up event card: details, small icon actions, inline edit. */
+function EventPopup({
+  card,
+  past,
+  tz,
+  viewerId,
+  onClose,
+  onRemove,
+  onUpdate,
+  onRespond,
+}: {
+  card: EventCard;
+  past: boolean;
+  tz: string;
+  viewerId: string;
+  onClose: () => void;
+  onRemove: () => void;
+  onUpdate: (updated: DigestCardData) => void;
+  onRespond: (accept: boolean) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [inviting, setInviting] = useState(false);
+
+  // Esc closes (unless the invite sheet is on top, which handles its own close).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !inviting) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, inviting]);
+
+  const isInvite = card.type === "social_invite";
+  const isWindow = card.type === "time_window";
   const isRadar = card.type === "calendar_radar";
+  const isPending = isInvite && card.status === "pending";
 
   const hostId = isInvite ? card.hostId : undefined;
   const isHost = isInvite && !!hostId && hostId === viewerId;
   const isGuest = isInvite && !!hostId && !isHost;
   const eventId = isInvite ? card.eventId : undefined;
   const allowReinvite = isInvite ? !!card.allowReinvite : false;
-  // A shared event has its own detail page — the row links there instead of
-  // expanding an accordion. Personal schedule items keep the inline accordion.
-  const hasPage = isInvite && !!eventId;
 
-  // Editable only by the owner: the host for a shared event, or yourself for a
-  // personal schedule item. Guests' invites and time windows are read-only.
   const canEditHost = isInvite && isHost && !!eventId && !past;
   const canEditPersonal = isRadar && !past;
   const canEdit = canEditHost || canEditPersonal;
 
-  // Invite affordances (Calendar-only). Promote a discovered/personal card into a
-  // hosted event, or invite more people to an event that already exists.
-  const canPromote = (isWindow || isRadar) && !past;
-  const canReinvite = isInvite && !!eventId && !past && (isHost || (isGuest && allowReinvite));
+  // Inviting a personal/saved item turns it into a shared event behind the
+  // scenes (you become its host); on a shared event it invites more people.
+  const isPromote = (isWindow || isRadar) && !past;
+  const canReinvite =
+    isInvite && !isPending && !!eventId && !past && (isHost || (isGuest && allowReinvite));
+  const canInvite = isPromote || canReinvite;
 
   const title = isInvite ? card.eventTitle : card.title;
-  // Kept only as context for the note-echo guard (the visible time lives in the tile).
   const timeLabel = isInvite ? card.eventTime : isRadar ? card.time : "";
   const location = !isWindow ? card.location : undefined;
-  const radarDetails = isRadar ? (card as CalendarRadarCard).details : undefined;
-
-  // Preserved public source (link + countdown) shown on hosted/guest invites.
+  const radarDetails = isRadar ? card.details : undefined;
   const sourceUrl = isInvite ? card.sourceUrl : isWindow ? card.actionUrl : undefined;
-  const inviteCountdown = isInvite ? windowStatus({ expiresAt: card.expiresAt, opensAt: card.opensAt }) : null;
+  const when = fullWhen(card, tz);
 
-  const inviteTarget = canPromote
+  const inviteTarget = isPromote
     ? ({ kind: "source", cardId: card.id } as const)
     : ({ kind: "event", eventId: eventId as string } as const);
 
-  return (
-    <div
-      className={`overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm dark:border-neutral-800 dark:bg-neutral-900 ${
-        past ? "opacity-80" : ""
-      }`}
-    >
-      <div className="flex gap-3 p-3">
-        <TimeTile card={card} tz={tz} />
+  const actions: QuickAction[] = [];
+  if (!past && !isPending) {
+    if (canInvite)
+      actions.push({
+        label: isPromote ? "Invite friends" : "Invite more friends",
+        icon: UserPlus,
+        onClick: () => setInviting(true),
+        tone: "primary",
+      });
+    if (canEdit) actions.push({ label: "Edit", icon: Pencil, onClick: () => setEditing(true) });
+  }
+  if (eventId) actions.push({ label: "Open event page", icon: ArrowUpRight, href: `/event/${eventId}` });
+  if (!isPending)
+    actions.push({
+      label: "Remove from calendar",
+      icon: Trash2,
+      onClick: () => {
+        onClose();
+        onRemove();
+      },
+      tone: "danger",
+    });
 
-        {hasPage ? (
-          <Link href={`/event/${eventId}`} className="min-w-0 flex-1 text-left">
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-                {title}
-              </h3>
-              <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-neutral-400" strokeWidth={2} />
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      onClick={onClose}
+    >
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        initial={{ opacity: 0, scale: 0.92, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+        onClick={(e) => e.stopPropagation()}
+        className="max-h-[85dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-[24px] bg-white shadow-[0_24px_60px_rgba(24,24,27,0.25)]"
+      >
+        <div className={`h-1.5 w-full ${rowBar(card)}`} aria-hidden />
+        <div className="p-5">
+          {/* Top line: when + small icon actions + close */}
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-[13px] font-semibold text-neutral-500">{when}</p>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {!editing && actions.map((a) => <IconButton key={a.label} {...a} />)}
+              <IconButton label="Close" icon={X} onClick={onClose} />
             </div>
-            {location && (
-              <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
-                <MapPin className="h-3.5 w-3.5" />
-                {location}
-              </p>
-            )}
-            {eventId && (
-              <div className="mt-1.5">
-                <GuestFaces eventId={eventId} />
-              </div>
-            )}
-            {isInvite && card.fee && card.fee > 0 && (
-              <span className="mt-1 inline-flex items-center gap-1 text-[0.8rem] font-medium text-neutral-600 dark:text-neutral-300">
-                <DollarSign className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
-                {money(card.fee)} to join
-              </span>
-            )}
-          </Link>
-        ) : isRadar ? (
-          // Personal entry: no expand — detail shown inline, edited in place.
-          <div className="min-w-0 flex-1">
-            {editing ? (
+          </div>
+
+          {editing && canEdit ? (
+            <div className="mt-3">
               <EditForm
-                card={card as CalendarRadarCard}
-                mode="personal"
+                card={card as SocialInviteCard | CalendarRadarCard}
+                mode={canEditHost ? "host" : "personal"}
+                eventId={eventId}
                 onCancel={() => setEditing(false)}
                 onSaved={(updated) => {
                   onUpdate(updated);
                   setEditing(false);
                 }}
               />
-            ) : (
-              <>
-                <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-                  {title}
-                </h3>
-                {location && (
-                  <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {location}
-                  </p>
-                )}
-                {radarDetails && !isRedundantNote(radarDetails, { time: timeLabel, location }) && (
-                  <p className="mt-1 text-[0.8rem] text-neutral-600 dark:text-neutral-300">{radarDetails}</p>
-                )}
-              </>
-            )}
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              if (editing) return;
-              onExpandedChange(!expanded);
-            }}
-            aria-expanded={expanded}
-            className="min-w-0 flex-1 text-left"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="text-sm font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-                {title}
-              </h3>
-              <ChevronDown
-                className={`mt-0.5 h-4 w-4 shrink-0 text-neutral-400 transition-transform ${
-                  expanded ? "rotate-180" : ""
-                }`}
-                strokeWidth={2}
-              />
             </div>
-            {location && (
-              <p className="mt-0.5 flex items-center gap-1.5 text-[0.8rem] text-neutral-500 dark:text-neutral-400">
-                <MapPin className="h-3.5 w-3.5" />
-                {location}
-              </p>
-            )}
-          </button>
-        )}
-
-        {isRadar ? (
-          !editing && (
-            <RowMenu
-              items={[
-                ...(!past
-                  ? [
-                      { label: "Edit", icon: Pencil, onClick: () => setEditing(true) },
-                      { label: "Host", icon: UserPlus, onClick: () => setInviting(true) },
-                    ]
-                  : []),
-                { label: "Remove", icon: Trash2, onClick: onRemove, danger: true },
-              ]}
-            />
-          )
-        ) : (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Remove from Calendar"
-            title="Remove from Calendar"
-            className="-mr-1 -mt-1 h-fit rounded-full p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-          >
-            <X className="h-4 w-4" strokeWidth={2.25} />
-          </button>
-        )}
-      </div>
-
-      {!hasPage && !isRadar && expanded && (
-        <div className="border-t border-neutral-100 px-3 pb-3 pt-2.5 dark:border-neutral-800">
-          {editing && canEdit ? (
-            <EditForm
-              card={card as SocialInviteCard | CalendarRadarCard}
-              mode={canEditHost ? "host" : "personal"}
-              eventId={eventId}
-              onCancel={() => setEditing(false)}
-              onSaved={(updated) => {
-                onUpdate(updated);
-                setEditing(false);
-              }}
-            />
           ) : (
             <>
-              <div className="space-y-1.5 text-sm text-neutral-600 dark:text-neutral-300">
+              {isPending && (
+                <p className="mt-3 text-[13px] font-semibold text-fuchsia-700">{card.senderName} invited you</p>
+              )}
+              <h2 className={`${isPending ? "mt-0.5" : "mt-3"} text-[22px] font-bold leading-tight tracking-tight text-neutral-900`}>
+                {title}
+              </h2>
+              {location && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 flex items-center gap-1.5 text-[14px] text-neutral-600 hover:text-neutral-900"
+                >
+                  <MapPin className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{location}</span>
+                </a>
+              )}
+              {eventId && (
+                <div className="mt-3">
+                  <GuestFaces eventId={eventId} />
+                </div>
+              )}
+
+              <div className="mt-3 space-y-1.5 text-[14px] leading-relaxed text-neutral-600">
                 {isInvite && isHost && (
-                  <p className="flex items-center gap-1.5 font-medium text-fuchsia-600 dark:text-fuchsia-400">
+                  <p className="flex items-center gap-1.5 font-medium text-fuchsia-700">
                     <Crown className="h-4 w-4" /> You&rsquo;re hosting
                   </p>
                 )}
                 {isInvite && isGuest && (
-                  <p className="text-neutral-500 dark:text-neutral-400">
+                  <p className="text-neutral-500">
                     Hosted by {card.hostName ?? card.senderName}
-                    <span className="ml-1 text-neutral-400 dark:text-neutral-500">· only they can edit</span>
+                    <span className="ml-1 text-neutral-400">· only they can edit</span>
                   </p>
                 )}
-                {isInvite && !hostId && (
-                  <p className="text-neutral-500 dark:text-neutral-400">Invited by {card.senderName}</p>
-                )}
                 {isInvite && card.note && !isRedundantNote(card.note, { time: timeLabel, location }) && (
-                  <p className="italic text-neutral-500 dark:text-neutral-400">{card.note}</p>
+                  <p className="whitespace-pre-wrap text-neutral-700">{card.note}</p>
                 )}
-                {isInvite && card.summary && (
-                  <p className="text-neutral-600 dark:text-neutral-300">{card.summary}</p>
+                {isInvite && card.summary && <p>{card.summary}</p>}
+                {isInvite && card.fee && card.fee > 0 && (
+                  <p className="flex items-center gap-1 font-medium text-neutral-700">
+                    <DollarSign className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
+                    {money(card.fee)} to join
+                  </p>
                 )}
-
-                {isWindow && <p className="text-neutral-600 dark:text-neutral-300">{card.summary}</p>}
-
-                {isInvite && inviteCountdown && inviteCountdown.label && (
-                  <p className="font-medium text-amber-600 dark:text-amber-400">{inviteCountdown.label}</p>
+                {radarDetails && !isRedundantNote(radarDetails, { time: timeLabel, location }) && (
+                  <p className="whitespace-pre-wrap text-neutral-700">{radarDetails}</p>
                 )}
-
+                {isWindow && card.summary && <p>{card.summary}</p>}
+                {isWindow && <p className="text-[13px] text-neutral-500">Saved from Today</p>}
                 {sourceUrl && (
                   <a
                     href={sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-amber-600 hover:underline dark:text-amber-400"
+                    className="inline-flex items-center gap-1 font-medium text-neutral-800 underline-offset-2 hover:underline"
                   >
-                    {isWindow ? card.actionLabel : "Read original"}
+                    {isWindow ? card.actionLabel : "Original listing"}
                     <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.25} />
                   </a>
                 )}
               </div>
 
-              {(canPromote || canReinvite || canEdit) && (
-                <div className="mt-2.5 flex flex-wrap items-center justify-end gap-2">
-                  {(canPromote || canReinvite) && (
-                    <button
-                      type="button"
-                      onClick={() => setInviting(true)}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                    >
-                      <UserPlus className="h-3.5 w-3.5" />
-                      {canPromote ? "Host" : "Invite more friends"}
-                    </button>
-                  )}
-                  {canEdit && (
-                    <button
-                      type="button"
-                      onClick={() => setEditing(true)}
-                      aria-label="Edit"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
-                  )}
+              {isPending && !past && (
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onRespond(false);
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-neutral-200 px-3.5 text-[13px] font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={2.4} /> Decline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onRespond(true);
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-fuchsia-700 px-3.5 text-[13px] font-semibold text-white transition hover:bg-fuchsia-800"
+                  >
+                    <Check className="h-3.5 w-3.5" strokeWidth={2.4} /> Accept
+                  </button>
                 </div>
               )}
             </>
           )}
         </div>
-      )}
+      </motion.div>
 
-      {!hasPage && inviting && (
-        <InviteComposer
-          eventTitle={title}
-          target={inviteTarget}
-          canSetReinvite={canPromote || isHost}
-          initialAllowReinvite={allowReinvite}
-          heading={canPromote ? "Host event" : "Invite friends"}
-          onClose={() => setInviting(false)}
-        />
+      {inviting && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <InviteComposer
+            eventTitle={title}
+            target={inviteTarget}
+            canSetReinvite={isPromote || isHost}
+            initialAllowReinvite={allowReinvite}
+            heading={isPromote ? "Invite friends" : "Invite more friends"}
+            onClose={() => setInviting(false)}
+          />
+        </div>
       )}
-    </div>
+    </motion.div>
+  );
+}
+
+/** A small round icon button (label shows as a tooltip + screen-reader name). */
+function IconButton({ label, icon: Icon, onClick, href, tone }: QuickAction) {
+  const cls = `flex h-9 w-9 items-center justify-center rounded-full transition active:scale-95 ${
+    tone === "primary"
+      ? "bg-fuchsia-700 text-white hover:bg-fuchsia-800"
+      : tone === "danger"
+        ? "bg-neutral-100 text-rose-600 hover:bg-rose-50"
+        : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200"
+  }`;
+  const icon = <Icon className="h-4 w-4" strokeWidth={2.2} />;
+  return href ? (
+    <Link href={href} aria-label={label} title={label} className={cls}>
+      {icon}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} aria-label={label} title={label} className={cls}>
+      {icon}
+    </button>
   );
 }
 
@@ -825,70 +889,3 @@ function money(cents: number): string {
   const dollars = cents / 100;
   return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
-
-interface RowMenuItem {
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  onClick: () => void;
-  danger?: boolean;
-}
-
-/** A kebab "⋯" that opens a small action popover. Fixed-positioned so it escapes
- *  the card's `overflow-hidden`; a transparent backdrop closes it. */
-function RowMenu({ items }: { items: RowMenuItem[] }) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
-
-  function toggle() {
-    if (!open && btnRef.current) {
-      const r = btnRef.current.getBoundingClientRect();
-      setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) });
-    }
-    setOpen((v) => !v);
-  }
-
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={toggle}
-        aria-label="More actions"
-        className="-mr-1 -mt-1 h-fit rounded-full p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
-      >
-        <MoreHorizontal className="h-4 w-4" strokeWidth={2.25} />
-      </button>
-      {open && pos && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="fixed z-50 w-40 overflow-hidden rounded-xl border border-neutral-200 bg-white p-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
-            style={{ top: pos.top, right: pos.right }}
-          >
-            {items.map((it) => {
-              const Icon = it.icon;
-              return (
-                <button
-                  key={it.label}
-                  type="button"
-                  onClick={() => {
-                    setOpen(false);
-                    it.onClick();
-                  }}
-                  className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800 ${
-                    it.danger ? "text-rose-600 dark:text-rose-400" : "text-neutral-700 dark:text-neutral-200"
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {it.label}
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </>
-  );
-}
-

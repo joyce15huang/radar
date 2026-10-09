@@ -59,7 +59,7 @@ export async function setUsername(raw: string): Promise<UsernameResult> {
     return { ok: false, error: "Couldn't save your username — try again." };
   }
 
-  revalidatePath("/");
+  revalidatePath("/today");
   revalidatePath("/profile");
   revalidatePath("/onboarding");
   return { ok: true, username: parsed.value };

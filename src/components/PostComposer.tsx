@@ -37,9 +37,21 @@ type Step = "select" | "edit" | "date";
 const newCrop = (): CropState => ({ crop: { x: 0, y: 0 }, zoom: 1, pixels: null });
 
 /** Instagram-style post composer: Select → Crop & caption → Date → Share. */
-export function PostComposer() {
+export function PostComposer({
+  eventId,
+  eventDate,
+  variant = "fab",
+}: {
+  /** Open already linked to this event (e.g. "Add photos" on an event page). */
+  eventId?: string;
+  /** The event's day (YYYY-MM-DD); the post is dated to it when it's not in the future. */
+  eventDate?: string | null;
+  /** "fab" = floating + button; "button" = an inline "Add" pill. */
+  variant?: "fab" | "button";
+} = {}) {
   const tz = clientTimeZone();
   const today = localFromIso(new Date().toISOString(), tz)?.date ?? new Date().toISOString().slice(0, 10);
+  const startDate = eventDate && eventDate <= today ? eventDate : today;
 
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("select");
@@ -52,13 +64,14 @@ export function PostComposer() {
   const [editIndex, setEditIndex] = useState(0);
   const [caption, setCaption] = useState("");
 
-  const [takenOn, setTakenOn] = useState(today);
+  const [takenOn, setTakenOn] = useState(startDate);
   const [viewMonth, setViewMonth] = useState(() => {
-    const [y, m] = today.split("-").map(Number);
+    const [y, m] = startDate.split("-").map(Number);
     return { y, m: m - 1 };
   });
   const [monthEvents, setMonthEvents] = useState<RangeEvent[]>([]);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(eventId ?? null);
+  const [monthLoaded, setMonthLoaded] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -68,9 +81,18 @@ export function PostComposer() {
     const w = monthWindow(viewMonth.y, viewMonth.m, tz);
     if (!w) return setMonthEvents([]);
     let live = true;
+    setMonthLoaded(false);
     listMyEventsInRange(w[0], w[1])
-      .then((evs) => live && setMonthEvents(evs))
-      .catch(() => live && setMonthEvents([]));
+      .then((evs) => {
+        if (!live) return;
+        setMonthEvents(evs);
+        setMonthLoaded(true);
+      })
+      .catch(() => {
+        if (!live) return;
+        setMonthEvents([]);
+        setMonthLoaded(true);
+      });
     return () => {
       live = false;
     };
@@ -90,9 +112,12 @@ export function PostComposer() {
     [monthEvents, takenOn, tz],
   );
 
+  // Drop a linked event that isn't on the chosen day — but only once that
+  // month's events have actually loaded (so a preset link isn't wiped early).
   useEffect(() => {
+    if (!monthLoaded) return;
     setSelectedEventId((prev) => (prev && dayEvents.some((e) => e.id === prev) ? prev : null));
-  }, [dayEvents]);
+  }, [dayEvents, monthLoaded]);
 
   function clearImages() {
     setImages((prev) => {
@@ -108,10 +133,10 @@ export function PostComposer() {
     setDoneWith(null);
     setEditIndex(0);
     setCaption("");
-    setTakenOn(today);
-    const [y, m] = today.split("-").map(Number);
+    setTakenOn(startDate);
+    const [y, m] = startDate.split("-").map(Number);
     setViewMonth({ y, m: m - 1 });
-    setSelectedEventId(null);
+    setSelectedEventId(eventId ?? null);
     setMonthEvents([]);
   }
 
@@ -183,21 +208,34 @@ export function PostComposer() {
 
   return (
     <>
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
-        <div className="mx-auto flex max-w-xl justify-end px-4 pb-6 sm:px-6">
-          <button
-            type="button"
-            onClick={() => {
-              reset();
-              setOpen(true);
-            }}
-            aria-label="New post"
-            className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-black/20 transition hover:scale-105 hover:bg-neutral-700 active:scale-95 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-          >
-            <Plus className="h-6 w-6" strokeWidth={2.5} />
-          </button>
+      {variant === "button" ? (
+        <button
+          type="button"
+          onClick={() => {
+            reset();
+            setOpen(true);
+          }}
+          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl bg-fuchsia-700 px-3.5 text-sm font-semibold text-white transition hover:bg-fuchsia-800"
+        >
+          <ImagePlus className="h-4 w-4" /> Add
+        </button>
+      ) : (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
+          <div className="mx-auto flex max-w-xl justify-end px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6">
+            <button
+              type="button"
+              onClick={() => {
+                reset();
+                setOpen(true);
+              }}
+              aria-label="New post"
+              className="pointer-events-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-900 text-white shadow-lg shadow-black/20 transition hover:scale-105 hover:bg-neutral-700 active:scale-95"
+            >
+              <Plus className="h-6 w-6" strokeWidth={2.5} />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {open && (
         <div

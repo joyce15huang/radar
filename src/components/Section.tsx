@@ -18,7 +18,7 @@ export function Section({
   return (
     <section>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+        <h2 className="text-[17px] font-semibold text-neutral-900">
           {title}
         </h2>
         {action}

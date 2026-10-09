@@ -68,7 +68,7 @@ export async function updateSession(request: NextRequest) {
     }
     if (profile?.username && onOnboarding) {
       const url = request.nextUrl.clone();
-      url.pathname = "/";
+      url.pathname = "/calendar";
       return NextResponse.redirect(url);
     }
   }

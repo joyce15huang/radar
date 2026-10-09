@@ -156,7 +156,7 @@ export async function sendCards(input: {
     if (error) return { ok: false, error: error.message };
   }
 
-  if (recipientIds.includes(actorId)) revalidatePath("/");
+  if (recipientIds.includes(actorId)) revalidatePath("/today");
   return { ok: true, sent: recipientIds.length, notFound };
 }
 

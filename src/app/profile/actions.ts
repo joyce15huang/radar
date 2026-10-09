@@ -72,7 +72,7 @@ export async function savePreferences(
     const todayISO = new Date().toISOString().slice(0, 10);
     const result = await fillUserDeck(admin, actorId, { locations: cities, todayISO, refresh: true });
 
-    revalidatePath("/");
+    revalidatePath("/today");
     revalidatePath("/profile");
 
     if (result.error) {

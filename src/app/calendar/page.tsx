@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { serverTimeZone } from "@/lib/tz";
-import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { CalendarView } from "@/components/CalendarView";
 import { EventFormFab } from "@/components/EventFormFab";
@@ -20,15 +19,25 @@ export default async function CalendarPage() {
     .from("cards")
     .select(CARD_SELECT)
     .eq("user_id", actorId)
-    .eq("status", "accepted")
+    .in("status", ["accepted", "pending"])
     .in("type", ["social_invite", "calendar_radar", "time_window"])
     .order("created_at", { ascending: true });
 
+  const now = Date.now();
+
+  // Accepted items, plus invites friends sent you that you haven't answered yet
+  // (shown tentatively with Accept / Decline). Unanswered invites to events that
+  // already happened are left out.
   const all = (rows ?? [])
     .map((r) => rowToCard(r as CardRow))
-    .filter((c): c is DigestCardData => c !== null);
+    .filter((c): c is DigestCardData => c !== null)
+    .filter(
+      (c) =>
+        c.status === "accepted" ||
+        // Personal invites only — public follower broadcasts stay in Today.
+        (c.type === "social_invite" && !c.broadcast && !isPastCard(c, now, tz)),
+    );
 
-  const now = Date.now();
   const byCreated = (a: DigestCardData, b: DigestCardData) =>
     Date.parse(a.createdAt) - Date.parse(b.createdAt);
 
@@ -41,19 +50,15 @@ export default async function CalendarPage() {
     .filter((c) => isPastCard(c, now, tz))
     .sort((a, b) => startKey(b) - startKey(a) || byCreated(b, a));
 
+  const monthLabel = new Date().toLocaleDateString("en-US", { timeZone: tz, month: "long", year: "numeric" });
+
   return (
-    <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
+    <main className="min-h-dvh bg-linen">
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-44 pt-6 sm:px-6 sm:pt-10">
         <TabNav />
-        <header className="mb-5">
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-            Calendar
-          </h1>
-          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Events you&rsquo;re going to, schedule you&rsquo;ve added, and opportunity
-            windows you&rsquo;re tracking &mdash; soonest first.
-          </p>
+        <header className="mb-4">
+          <p className="text-[13px] font-medium text-neutral-500">{monthLabel}</p>
+          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">Calendar</h1>
         </header>
         <CalendarView upcoming={upcoming} past={past} tz={tz} viewerId={actorId} />
       </div>

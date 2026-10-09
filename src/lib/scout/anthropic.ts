@@ -130,7 +130,7 @@ export async function generateSearchQueries(
     messages: [
       {
         role: "user",
-        content: `Today is ${todayISO}. A user described their standing interests and location:\n\n"""${standingPrompt}"""\n\nThis is an "Opportunity Engine": it surfaces things to DO — hyper-local gems and, especially, TIME-SENSITIVE opportunities people miss because they didn't know in time. The user may list more than one location; spread your queries across each of them. Write 4-6 focused web search queries that surface, for the user's location(s):\n- Astrotourism & nature windows (meteor showers, aurora visibility, tides, blooms, whale/butterfly migrations)\n- Permits & lotteries with deadlines (park permits, campsite lotteries, race registrations)\n- Hyper-local pop-ups & one-off events (chef pop-ups, sample sales, street fairs, festivals)\n- Notable local happenings and hidden gems tied to their stated interests\n${window} Prefer concrete queries (neighborhoods, venues, dates, event names) and sources that state exact dates and start times. Mark time-sensitive/dated queries with topic "news", evergreen ones with "general".`,
+        content: `Today is ${todayISO}. A user described their standing interests and location:\n\n"""${standingPrompt}"""\n\nThis is an "Opportunity Engine": it surfaces things to DO — hyper-local gems and, especially, TIME-SENSITIVE opportunities people miss because they didn't know in time. The user may list more than one location; spread your queries across each of them. Write 5-6 focused web search queries for the user's location(s). BREADTH MATTERS: each query must target a DIFFERENT kind of thing, so the deck isn't five versions of one story. Pick from:\n- Food & drink (chef pop-ups, food festivals, tastings, new openings)\n- Live music, arts & culture (shows, exhibits, readings, film nights)\n- Markets & community (street fairs, farmers/flea markets, neighborhood events)\n- Outdoors & nature (hikes, blooms, tides, wildlife) — AT MOST ONE query about the sky/astronomy\n- Sports & fitness (games, races, group runs, classes)\n- Permits, lotteries & registrations with deadlines\n- Learning & talks (workshops, lectures, meetups)\nLean toward the categories that match their stated interests, but never spend more than one query on the same kind of thing.\n${window} Prefer concrete queries (neighborhoods, venues, dates, event names) and sources that state exact dates and start times. Mark time-sensitive/dated queries with topic "news", evergreen ones with "general".`,
       },
     ],
   });
@@ -170,8 +170,11 @@ Rules:
 - topic: ALWAYS set a 1-3 word label of WHAT the thing is — concrete and specific, not a category word. E.g. "Stargazing", "Live music", "Farmers market", "National park", "Whale watching", "Street fair", "Meteor shower", "Wine tasting". This is shown on undated cards so the user knows what it is at a glance.
 - topic_key: ALWAYS set a canonical kebab-case slug for the SPECIFIC underlying event or occurrence, and make it STABLE across different outlets and headlines. E.g. "perseids-meteor-shower", "outside-lands-festival", "yosemite-firefall", "sf-cherry-blossom-festival". The SAME real event must get the SAME slug even when two sources word the headline differently — base it on the event itself (named phenomenon, plus place when needed to disambiguate), never on the headline's phrasing. This lets the app avoid showing the user the same event twice from different sources.
 - Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted events. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
-- Keep summaries to 2-3 sentences, factual and low-anxiety. No hype, no clickbait, no fear-mongering.
-- Avoid near-duplicate cards. Titles are punchy and specific (aim under ~70 characters).`,
+- summary is a ONE-SENTENCE HOOK, 15 words max: the single detail that makes it worth doing (when/where/why). No background, no filler, no second sentence. Calm and factual — no hype, no clickbait.
+- BREADTH: every card must be a DIFFERENT kind of thing. Never more than ONE card per topic (one meteor-shower card total, even if there are two showers or five outlets covering it). Spread the deck across food, music/arts, outdoors, markets/community, sports and learning when the context allows. Fewer, varied cards beat more, repetitive ones.
+- topic: use the SAME label for the same kind of thing every time (always "Meteor shower", never "Stargazing" for one and "Meteor shower" for another).
+- Titles are punchy and specific, under ~60 characters.
+- action_label: "Details" by default; use a specific verb only when it's clearly the action ("Get tickets", "Enter lottery", "Register").`,
     tools: [
       {
         name: "emit_cards",
@@ -195,7 +198,7 @@ Rules:
                   title: { type: "string" },
                   summary: {
                     type: "string",
-                    description: "2-3 calm sentences. May use **bold** or *italic*.",
+                    description: "ONE-sentence hook, 15 words max. The key detail that makes it worth doing. No filler.",
                   },
                   topic: {
                     type: ["string", "null"],
@@ -207,7 +210,7 @@ Rules:
                   },
                   action_label: {
                     type: "string",
-                    description: "Short button label, e.g. 'Read more', 'Open lottery', 'View details'.",
+                    description: "'Details' by default; a specific verb only when clearly the action ('Get tickets', 'Enter lottery', 'Register').",
                   },
                   action_url: {
                     type: ["string", "null"],

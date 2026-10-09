@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateDeck } from "./generateDeck";
-import { drawFromPool, upsertPoolEvents, type PoolEvent } from "./pool";
+import { drawFromPool, upsertPoolEvents, topicFamily, type PoolEvent } from "./pool";
 import { SCOUT_CATEGORY_KEYS, type GeneratedCard } from "./anthropic";
 import { startOfTodayISO } from "@/lib/time";
 import type { CategoryKey } from "@/lib/types";
@@ -117,7 +117,7 @@ export async function fillUserDeck(
   const [{ data: survivors }, { data: held }] = await Promise.all([
     admin
       .from("cards")
-      .select("id")
+      .select("id, content")
       .eq("user_id", userId)
       .eq("status", "pending")
       .in("type", PUBLIC_TYPES),
@@ -128,6 +128,12 @@ export async function fillUserDeck(
       .or("dedup_key.not.is.null,topic_key.not.is.null"),
   ]);
   const kept = survivors?.length ?? 0;
+  // Kinds of thing already on the deck — never add a second of the same kind.
+  const families = new Set<string>();
+  for (const r of survivors ?? []) {
+    const fam = topicFamily((r as { content?: { topic?: string | null } }).content?.topic);
+    if (fam) families.add(fam);
+  }
   const heldKeys = new Set<string>();
   const heldTopics = new Set<string>();
   for (const r of held ?? []) {
@@ -141,7 +147,7 @@ export async function fillUserDeck(
 
   // 3. Fill from the shared pool first (cheap DB read, no external calls).
   const picked: PoolEvent[] = [];
-  for (const e of await drawFromPool(admin, locations, heldKeys, startISO, need, heldTopics)) {
+  for (const e of await drawFromPool(admin, locations, heldKeys, startISO, need, heldTopics, families)) {
     picked.push(e);
     heldKeys.add(e.dedup_key);
     if (e.topic_key) heldTopics.add(e.topic_key);
@@ -158,7 +164,7 @@ export async function fillUserDeck(
       continue;
     }
     await upsertPoolEvents(admin, loc, gen, nowMs);
-    for (const e of await drawFromPool(admin, [loc], heldKeys, startISO, need - picked.length, heldTopics)) {
+    for (const e of await drawFromPool(admin, [loc], heldKeys, startISO, need - picked.length, heldTopics, families)) {
       picked.push(e);
       heldKeys.add(e.dedup_key);
       if (e.topic_key) heldTopics.add(e.topic_key);
@@ -233,7 +239,8 @@ async function refreshPublicDeck(
 
   // Build the fresh set: shared pool first, then live per location for the gap.
   const picked: PoolEvent[] = [];
-  for (const e of await drawFromPool(admin, locations, suppress, startISO, cap, suppressTopics)) {
+  const families = new Set<string>();
+  for (const e of await drawFromPool(admin, locations, suppress, startISO, cap, suppressTopics, families)) {
     picked.push(e);
     suppress.add(e.dedup_key);
     if (e.topic_key) suppressTopics.add(e.topic_key);
@@ -247,7 +254,7 @@ async function refreshPublicDeck(
       continue;
     }
     await upsertPoolEvents(admin, loc, gen, nowMs);
-    for (const e of await drawFromPool(admin, [loc], suppress, startISO, cap - picked.length, suppressTopics)) {
+    for (const e of await drawFromPool(admin, [loc], suppress, startISO, cap - picked.length, suppressTopics, families)) {
       picked.push(e);
       suppress.add(e.dedup_key);
       if (e.topic_key) suppressTopics.add(e.topic_key);

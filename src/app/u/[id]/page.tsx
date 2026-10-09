@@ -102,7 +102,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
 
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-8 sm:px-6 sm:pt-12">
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-8 sm:px-6 sm:pt-12">
         <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <ProfileHeader data={header} targetId={id} friendState={friendState} mutuals={mutuals} />

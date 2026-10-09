@@ -1,37 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
-import {
-  ArrowUpRight,
-  X,
-  Check,
-  MapPin,
-  Link2,
-  Bookmark,
-  CalendarDays,
-  CalendarPlus,
-  DollarSign,
-} from "lucide-react";
-import { CATEGORIES } from "@/lib/categories";
-import { CARD_TYPES, initials } from "@/lib/cardTypes";
+import { ArrowUpRight, Check, MapPin, Link2, CalendarDays, CalendarPlus } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
 import { eventDateLabel } from "@/lib/dateLabel";
 import { addScoutedToCalendar } from "@/app/deck-actions";
 import { setFeePaid } from "@/app/event-actions";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
-import {
-  busyFromCard,
-  findConflict,
-  formatBusyRange,
-  type BusyInterval,
-} from "@/lib/conflicts";
+import { busyFromCard, findConflict, formatBusyRange, type BusyInterval } from "@/lib/conflicts";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { PhotoGallery } from "./PhotoGallery";
 import { RichText } from "./RichText";
+import { cardVisual } from "./cardVisual";
 
 /** Terminal statuses a card can resolve to from the deck. */
 export type ResolveStatus = Extract<CardStatus, "saved" | "dismissed" | "accepted">;
+
+type Scouted = Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
+type Invite = Extract<DigestCardData, { type: "social_invite" }>;
 
 interface DigestCardProps {
   card: DigestCardData;
@@ -40,84 +28,508 @@ interface DigestCardProps {
   busy?: BusyInterval[];
 }
 
+/** Keeps a nested gesture (photo scroll, date picker) from dragging the card. */
+const stopDrag = (e: React.PointerEvent) => e.stopPropagation();
+
 /* --------------------------------- shell ---------------------------------- */
 
+/**
+ * One deck card: an optional sender line, a tinted hero (or the photos of a
+ * friend's post), a date tile + title + one-line hook, and quiet icon actions.
+ * Skip / save / RSVP live on the deck (swipe + the buttons under the card).
+ */
 export function DigestCard({ card, onResolve, busy = [] }: DigestCardProps) {
-  const rail =
-    card.type === "news_scout"
-      ? (CATEGORIES[card.category]?.railClass ?? "bg-neutral-300 dark:bg-neutral-700")
-      : (CARD_TYPES[card.type]?.railClass ?? "bg-neutral-300 dark:bg-neutral-700");
-
   return (
-    <motion.article
-      layout
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{
-        opacity: 0,
-        height: 0,
-        marginTop: 0,
-        marginBottom: 0,
-        scale: 0.96,
-        transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] },
-      }}
-      transition={{ type: "spring", stiffness: 320, damping: 30 }}
-      className="group relative overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm ring-1 ring-black/[0.02] transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900"
-    >
-      <span className={`absolute inset-y-0 left-0 w-1 ${rail}`} aria-hidden />
-      <div className="p-5 pl-6">
-        <CardHeader card={card} onResolve={onResolve} />
-        <CardBody card={card} busy={busy} />
-        <div className="mt-4">
-          <CardActions card={card} onResolve={onResolve} />
-        </div>
+    <article className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_rgba(24,24,27,0.08)]">
+      <SenderStrip card={card} />
+      <Hero card={card} />
+      <div className="p-5">
+        <MainRow card={card} />
+        <Extras card={card} busy={busy} />
+        <Footer card={card} onResolve={onResolve} />
       </div>
-    </motion.article>
+    </article>
   );
 }
 
-/* -------------------------------- header ---------------------------------- */
+/* ------------------------------ sender strip ------------------------------ */
 
-function Chip({
-  icon: Icon,
-  text,
-  className,
+function senderLine(card: DigestCardData): { name: string; verb: string } | null {
+  switch (card.type) {
+    case "social_invite":
+      return { name: card.senderName, verb: "invited you" };
+    case "social_post":
+      return { name: card.senderName, verb: card.eventTitle ? `shared photos from ${card.eventTitle}` : "shared a post" };
+    case "social_ping":
+      return { name: card.senderName, verb: "sent you a note" };
+    case "time_poll":
+      return { name: card.senderName, verb: "is finding a time" };
+    case "event_update":
+      return { name: card.hostName, verb: "updated the plan" };
+    case "broadcast_bundle":
+      return { name: card.senderName, verb: `posted ${card.count} events` };
+    default:
+      return null;
+  }
+}
+
+function SenderStrip({ card }: { card: DigestCardData }) {
+  const s = senderLine(card);
+  if (!s) return null;
+  return (
+    <div className="flex items-center gap-2.5 border-b border-neutral-100 px-5 py-3.5">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">
+        {initials(s.name)}
+      </span>
+      <p className="min-w-0 truncate text-sm text-neutral-600">
+        <span className="font-semibold text-neutral-900">{s.name}</span> {s.verb}
+      </p>
+    </div>
+  );
+}
+
+/* ---------------------------------- hero ---------------------------------- */
+
+function Hero({ card }: { card: DigestCardData }) {
+  if (card.type === "social_post" && card.imageUrls.length > 0) {
+    return (
+      <div className="px-3 pt-3" onPointerDown={stopDrag}>
+        <PhotoGallery images={card.imageUrls} alt={card.caption ?? "Post photo"} />
+      </div>
+    );
+  }
+  const v = cardVisual(card);
+  const Icon = v.icon;
+  const pill = (card.type === "news_scout" || card.type === "time_window") && card.topic ? card.topic : v.label;
+  return (
+    <div className={`relative flex h-40 items-center justify-center ${v.bg}`}>
+      <span className={`absolute left-4 top-4 rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold ${v.pill}`}>
+        {pill}
+      </span>
+      <Icon className={`h-16 w-16 ${v.fg}`} strokeWidth={1.4} aria-hidden />
+    </div>
+  );
+}
+
+/* -------------------------------- main row -------------------------------- */
+
+interface Tile {
+  top: string;
+  day: string;
+  time: string | null;
+}
+
+/** Date-tile data for an ISO time, in the viewer's timezone. Weekday when the
+ *  date is within the coming week, otherwise the month. */
+function tileFor(iso: string | undefined | null, fallbackTime?: string | null): Tile | null {
+  if (!iso || Number.isNaN(Date.parse(iso))) return null;
+  const loc = localFromIso(iso, clientTimeZone());
+  if (!loc?.date) return null;
+  const [y, m, d] = loc.date.split("-").map(Number);
+  const noon = new Date(Date.UTC(y, m - 1, d, 12));
+  const days = (noon.getTime() - Date.now()) / 86_400_000;
+  const top =
+    days > -1 && days < 6.5
+      ? noon.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })
+      : noon.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  let time: string | null = null;
+  if (isoHasClock(iso) && loc.time) {
+    const [hh, mm] = loc.time.split(":").map(Number);
+    time = `${hh % 12 || 12}${mm ? `:${String(mm).padStart(2, "0")}` : ""} ${hh < 12 ? "AM" : "PM"}`;
+  } else if (fallbackTime && fallbackTime.length <= 12) {
+    time = fallbackTime;
+  }
+  return { top: top.toUpperCase(), day: String(d), time };
+}
+
+function cardTile(card: DigestCardData): Tile | null {
+  switch (card.type) {
+    case "time_window":
+      return tileFor(card.opensAt ?? card.expiresAt, card.windowLabel);
+    case "social_invite":
+      return tileFor(card.startsAt);
+    case "calendar_radar":
+      return tileFor(card.startsAt);
+    default:
+      return null;
+  }
+}
+
+/** A text "when" for cards without a clean date tile. */
+function whenText(card: DigestCardData): string | null {
+  switch (card.type) {
+    case "time_window": {
+      const w = card.windowLabel?.trim() || eventDateLabel(card.opensAt, card.expiresAt);
+      if (w) return w;
+      return guessedWhen(card);
+    }
+    case "news_scout":
+      return guessedWhen(card);
+    case "social_invite":
+      return card.eventTime || null;
+    case "calendar_radar":
+      return card.time || null;
+    case "event_update":
+      return card.eventTime || null;
+    default:
+      return null;
+  }
+}
+
+function guessedWhen(card: Scouted): string | null {
+  const g = guessDateTime(`${card.title}. ${card.summary}`);
+  return (g ? formatGuess(g) : guessTimeHint(card.summary)) || null;
+}
+
+function cardTitle(card: DigestCardData): string | null {
+  switch (card.type) {
+    case "news_scout":
+    case "time_window":
+    case "calendar_radar":
+    case "time_poll":
+      return card.title;
+    case "social_invite":
+    case "event_update":
+      return card.eventTitle;
+    case "broadcast_bundle":
+      return `${card.count} upcoming events`;
+    default:
+      return null;
+  }
+}
+
+function Hook({ card }: { card: DigestCardData }) {
+  const muted = "text-[15px] leading-snug text-neutral-600";
+  switch (card.type) {
+    case "news_scout":
+    case "time_window":
+      return <RichText text={card.summary} className={`line-clamp-2 ${muted}`} />;
+    case "social_invite":
+      return card.note ? <RichText text={card.note} className={`line-clamp-2 ${muted}`} /> : null;
+    case "calendar_radar":
+      return card.details ? <p className={`line-clamp-2 ${muted}`}>{card.details}</p> : null;
+    case "time_poll":
+      return (
+        <p className={muted}>
+          {card.optionCount ? `${card.optionCount} option${card.optionCount === 1 ? "" : "s"} — ` : ""}mark when you&rsquo;re free.
+        </p>
+      );
+    case "broadcast_bundle":
+      return (
+        <ul className="space-y-1">
+          {card.titles.slice(0, 3).map((t, i) => (
+            <li key={i} className={`truncate ${muted}`}>
+              {t}
+            </li>
+          ))}
+          {card.titles.length > 3 && <li className="text-[13px] text-neutral-500">+{card.titles.length - 3} more</li>}
+        </ul>
+      );
+    case "social_ping":
+      return (
+        <div className="space-y-2">
+          <RichText text={card.message} className="text-[17px] leading-relaxed text-neutral-800" />
+          {card.link && (
+            <a
+              href={card.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-fuchsia-700 hover:underline"
+            >
+              <Link2 className="h-3.5 w-3.5" />
+              {safeHostname(card.link)}
+            </a>
+          )}
+        </div>
+      );
+    case "social_post":
+      return card.caption ? (
+        <RichText text={card.caption} className="line-clamp-3 text-[15px] leading-relaxed text-neutral-800" />
+      ) : null;
+    default:
+      return null;
+  }
+}
+
+function MainRow({ card }: { card: DigestCardData }) {
+  const tile = cardTile(card);
+  const when = tile ? null : whenText(card);
+  const title = cardTitle(card);
+  return (
+    <div className="flex items-start gap-4">
+      {tile && <DateTile tile={tile} />}
+      <div className="min-w-0 flex-1 space-y-1.5">
+        {when && (
+          <p className="flex items-center gap-1.5 text-[13px] font-medium text-neutral-500">
+            <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
+            {when}
+          </p>
+        )}
+        {title && <h2 className="text-xl font-semibold leading-tight tracking-tight text-neutral-900">{title}</h2>}
+        <Hook card={card} />
+      </div>
+    </div>
+  );
+}
+
+function DateTile({ tile }: { tile: Tile }) {
+  return (
+    <div className="flex w-14 shrink-0 flex-col items-center rounded-2xl bg-neutral-100 py-2">
+      <span className="text-[11px] font-semibold tracking-wider text-neutral-600">{tile.top}</span>
+      <span className="text-2xl font-bold leading-tight text-neutral-900">{tile.day}</span>
+      {tile.time && <span className="px-1 text-center text-[11px] font-medium leading-tight text-neutral-600">{tile.time}</span>}
+    </div>
+  );
+}
+
+/* --------------------------------- extras --------------------------------- */
+
+function MetaLine({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-neutral-600">
+      <Icon className="h-4 w-4 shrink-0 text-neutral-400" strokeWidth={2} />
+      <span className="truncate">{text}</span>
+    </p>
+  );
+}
+
+function Extras({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
+  if (card.type === "social_invite") {
+    const conflict = conflictMeta(card, busy, clientTimeZone());
+    if (!card.location && !conflict && !(card.fee && card.fee > 0)) return null;
+    return (
+      <div className="mt-4 space-y-2.5">
+        {card.location && <MetaLine icon={MapPin} text={card.location} />}
+        {conflict && (
+          <p className={`text-[13px] ${conflict.conflict ? "font-medium text-amber-700" : "text-neutral-500"}`}>
+            {conflict.text}
+          </p>
+        )}
+        <FeeRow card={card} />
+      </div>
+    );
+  }
+  if ((card.type === "calendar_radar" || card.type === "event_update") && card.location) {
+    return (
+      <div className="mt-4">
+        <MetaLine icon={MapPin} text={card.location} />
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * Conflict status for an invite — "No conflict" or "Conflict with <event> ·
+ * <time>" — against the user's accepted calendar. Null unless the card carries
+ * a concrete start time (never guessed from prose).
+ */
+function conflictMeta(
+  card: DigestCardData,
+  busy: BusyInterval[],
+  tz: string,
+): { text: string; conflict: boolean } | null {
+  const self = busyFromCard(card);
+  if (!self) return null;
+  const hit = findConflict(self.startMs, self.endMs, busy);
+  if (hit) return { text: `Conflict with ${hit.title} · ${formatBusyRange(hit, tz)}`, conflict: true };
+  return { text: "No conflict", conflict: false };
+}
+
+/** Integer cents → "$40" / "$16.67". */
+function money(cents: number): string {
+  const dollars = cents / 100;
+  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
+/** The invite's fee: amount, a Pay deep-link, and a manual "Mark paid" tap.
+ *  No real money moves — the tap records the attendee's own confirmation. */
+function FeeRow({ card }: { card: Invite }) {
+  const [paid, setPaid] = useState(!!card.feePaid);
+  const [pending, setPending] = useState(false);
+
+  if (!card.fee || card.fee <= 0) return null;
+
+  const venmoHref = card.venmoId
+    ? `https://venmo.com/${card.venmoId}?txn=pay&amount=${(card.fee / 100).toFixed(2)}`
+    : null;
+  const linkHref = card.paymentLink
+    ? /^https?:\/\//i.test(card.paymentLink)
+      ? card.paymentLink
+      : `https://${card.paymentLink}`
+    : null;
+  const payHref = venmoHref ?? linkHref;
+
+  async function toggle() {
+    if (pending) return;
+    const next = !paid;
+    setPaid(next);
+    setPending(true);
+    const res = await setFeePaid(card.id, next);
+    setPending(false);
+    if (!res.ok) setPaid(!next);
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-neutral-50 px-3.5 py-3">
+      <span className="text-sm font-semibold text-neutral-900">{money(card.fee)} to join</span>
+      {payHref && (
+        <a
+          href={payHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm font-medium text-fuchsia-700 hover:underline"
+        >
+          {venmoHref ? "Pay on Venmo" : "Pay"}
+        </a>
+      )}
+      {card.zelleId && <span className="text-xs text-neutral-500">Zelle {card.zelleId}</span>}
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={pending}
+        className={`ml-auto inline-flex min-h-[36px] items-center gap-1 rounded-full px-3 text-xs font-semibold transition disabled:opacity-60 ${
+          paid ? "bg-emerald-50 text-emerald-700" : "bg-neutral-900 text-white hover:bg-neutral-700"
+        }`}
+      >
+        {paid ? (
+          <>
+            <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> Paid
+          </>
+        ) : (
+          "Mark paid"
+        )}
+      </button>
+    </div>
+  );
+}
+
+/* --------------------------------- footer --------------------------------- */
+
+function IconButton({
+  label,
+  onClick,
+  pressed,
+  children,
 }: {
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  text: string;
-  className: string;
+  label: string;
+  onClick: () => void;
+  pressed?: boolean;
+  children: React.ReactNode;
 }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${className}`}
-    >
-      <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-      {text}
-    </span>
-  );
-}
-
-function Avatar({ name }: { name: string }) {
-  return (
-    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-900 text-[0.65rem] font-semibold text-white dark:bg-white dark:text-neutral-900">
-      {initials(name)}
-    </span>
-  );
-}
-
-/** The Save (bookmark) button — only friends' posts are savable to the Library. */
-function SaveButton({ onSave }: { onSave: () => void }) {
   return (
     <button
       type="button"
-      onClick={onSave}
-      aria-label="Save to Library"
-      title="Save to Library"
-      className="rounded-full p-1.5 text-neutral-400 transition-colors hover:bg-amber-50 hover:text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 dark:hover:bg-amber-500/10 dark:hover:text-amber-400"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-pressed={pressed}
+      className={`flex h-11 w-11 items-center justify-center rounded-full border transition ${
+        pressed
+          ? "border-neutral-900 bg-neutral-900 text-white"
+          : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+      }`}
     >
-      <Bookmark className="h-[1.15rem] w-[1.15rem]" strokeWidth={2} />
+      {children}
     </button>
   );
+}
+
+function Footer({ card, onResolve }: { card: DigestCardData; onResolve: (id: string, s: ResolveStatus) => void }) {
+  if (card.type === "news_scout" || card.type === "time_window") {
+    return <ScoutFooter card={card} onAdded={() => onResolve(card.id, "accepted")} />;
+  }
+  if (card.type === "social_invite" && card.sourceUrl) {
+    return (
+      <a
+        href={card.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-medium text-neutral-600 hover:text-neutral-900"
+      >
+        <Link2 className="h-3.5 w-3.5" /> Original details
+      </a>
+    );
+  }
+  return null;
+}
+
+function ScoutFooter({ card, onAdded }: { card: Scouted; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const url = card.actionUrl;
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 truncate text-[13px] text-neutral-500">{url ? safeHostname(url) : ""}</span>
+        <div className="flex shrink-0 gap-2">
+          {url && (
+            <IconButton label={card.actionLabel || "Open source"} onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>
+              <ArrowUpRight className="h-[18px] w-[18px]" strokeWidth={2} />
+            </IconButton>
+          )}
+          <IconButton label="Add to calendar" pressed={open} onClick={() => setOpen((o) => !o)}>
+            <CalendarPlus className="h-[18px] w-[18px]" strokeWidth={2} />
+          </IconButton>
+        </div>
+      </div>
+      {open && <CalendarPicker card={card} onAdded={onAdded} onCancel={() => setOpen(false)} />}
+    </div>
+  );
+}
+
+/** Inline picker, prefilled from the scouted date (or a best guess). Confirming
+ *  turns the card into an owned, editable personal event. */
+function CalendarPicker({ card, onAdded, onCancel }: { card: Scouted; onAdded: () => void; onCancel: () => void }) {
+  const [value, setValue] = useState<DTValue>(() => initialPickerValue(card));
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add() {
+    if (!value.date) return setError("Pick a date.");
+    const iso = isoFromLocal(value.date, value.time, clientTimeZone());
+    if (!iso) return setError("Pick a valid date.");
+    setPending(true);
+    setError(null);
+    const r = await addScoutedToCalendar({ id: card.id, startsAt: iso, hasTime: value.time !== null });
+    if (r.ok) return onAdded();
+    setPending(false);
+    setError(r.error ?? "Couldn't add that.");
+  }
+
+  return (
+    <div className="mt-3 space-y-2.5 rounded-2xl bg-neutral-50 p-3" onPointerDown={stopDrag}>
+      <p className="text-xs font-medium text-neutral-500">Add to your calendar</p>
+      <DateTimeField value={value} onChange={setValue} />
+      {error && <p className="text-xs text-rose-700">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={add}
+          disabled={pending}
+          className="min-h-[40px] rounded-full bg-neutral-900 px-4 text-sm font-semibold text-white transition hover:bg-neutral-700 disabled:opacity-60"
+        >
+          {pending ? "Adding…" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="min-h-[40px] rounded-full px-4 text-sm font-medium text-neutral-600 transition hover:bg-neutral-100"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------- helpers -------------------------------- */
+
+function safeHostname(url: string): string {
+  try {
+    return new URL(url).hostname.replace("www.", "");
+  } catch {
+    return "link";
+  }
 }
 
 const TIME_PHRASES: [string, string][] = [
@@ -145,514 +557,26 @@ const TIME_PHRASES: [string, string][] = [
   ["nights", "Nights"],
 ];
 
-/**
- * Best-effort, zero-cost guess of a time-of-day or time RANGE from free text,
- * used to enrich an undated card's top line (e.g. "10am–4pm", "8pm", "Evenings").
- * Returns "" if nothing confident.
- */
+/** Best-effort time-of-day or range from free text ("10am–4pm", "8pm",
+ *  "Evenings"). "" if nothing confident. */
 function guessTimeHint(text: string): string {
   const t = text.toLowerCase();
-
-  // A range like "10am-4pm" / "7–9 pm".
   let m = t.match(/\b(\d{1,2}(?::\d{2})?)\s?(am|pm)?\s?(?:–|—|-|to)\s?(\d{1,2}(?::\d{2})?)\s?(am|pm)\b/);
   if (m) {
     const clean = (n: string, ap?: string) => `${n}${ap ?? ""}`.replace(/:00/g, "");
     return `${clean(m[1], m[2] ?? m[4])}–${clean(m[3], m[4])}`;
   }
-
-  // A single time like "8pm" / "8:30 pm".
   m = t.match(/\b(\d{1,2})(?::(\d{2}))?\s?(am|pm)\b/);
   if (m) {
     const min = m[2] && m[2] !== "00" ? `:${m[2]}` : "";
     return `${m[1]}${min}${m[3]}`;
   }
-
   for (const [needle, label] of TIME_PHRASES) if (t.includes(needle)) return label;
   return "";
 }
 
-/**
- * The top-of-card time line for a scouted card. ONE clean time/date, shown once:
- * a recurring window label ("Wednesdays, 7–10:30pm"), else the concrete date,
- * else a best-effort guess from the text. No topic tag, no countdown.
- */
-function DateLine({
-  card,
-}: {
-  card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
-}) {
-  const isWindow = card.type === "time_window";
-  const windowLabel = isWindow ? card.windowLabel?.trim() ?? "" : "";
-  const dateText = isWindow ? eventDateLabel(card.opensAt, card.expiresAt) : "";
-
-  let when = windowLabel || dateText;
-  if (!when) {
-    const g = guessDateTime(`${card.title}. ${card.summary}`);
-    when = g ? formatGuess(g) : guessTimeHint(card.summary);
-  }
-  if (!when) return null;
-
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-700 ring-1 ring-inset ring-neutral-200/70 dark:bg-neutral-800 dark:text-neutral-200 dark:ring-neutral-700/70">
-      <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
-      {when}
-    </span>
-  );
-}
-
-/**
- * Conflict status for a Today card as plain text — "No conflict" or
- * "Conflict with <event> · <time>" — checked against the calendar the user has
- * already accepted. Null unless the card carries a concrete, explicit clock
- * time via a real start field (never a time guessed from prose), so vague or
- * recurring items like "After midnight" / "daily" never flag a conflict.
- * Shown inline on the event's time line (see CardBody), not as a separate row.
- */
-function conflictMeta(
-  card: DigestCardData,
-  busy: BusyInterval[],
-  tz: string,
-): { text: string; conflict: boolean } | null {
-  const self = busyFromCard(card);
-  if (!self) return null;
-  const hit = findConflict(self.startMs, self.endMs, busy);
-  if (hit) return { text: `Conflict with ${hit.title} · ${formatBusyRange(hit, tz)}`, conflict: true };
-  return { text: "No conflict", conflict: false };
-}
-
-function CardHeader({
-  card,
-  onResolve,
-}: {
-  card: DigestCardData;
-  onResolve: (id: string, status: ResolveStatus) => void;
-}) {
-  // Scouted cards: date/topic on top-left, nothing on the right (not savable).
-  if (card.type === "news_scout" || card.type === "time_window") {
-    return (
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <DateLine card={card} />
-      </div>
-    );
-  }
-
-  if (card.type === "event_update") {
-    const upd = CARD_TYPES.event_update;
-    return (
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <Chip icon={upd.icon} text={upd.label} className={upd.chipClass} />
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">from {card.hostName}</span>
-      </div>
-    );
-  }
-
-  const meta = CARD_TYPES[card.type];
-  if (!meta) return null;
-
-  const isSocial =
-    card.type === "social_ping" ||
-    card.type === "social_invite" ||
-    card.type === "social_post";
-
-  return (
-    <div className="mb-3 flex items-center justify-between gap-2">
-      <Chip icon={meta.icon} text={meta.label} className={meta.chipClass} />
-      <div className="flex items-center gap-2">
-        {isSocial && (
-          <span className="flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-            <Avatar name={card.senderName} />
-            {card.senderName}
-          </span>
-        )}
-        {/* Save only exists on friends' posts. */}
-        {card.type === "social_post" && (
-          <SaveButton onSave={() => onResolve(card.id, "saved")} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* --------------------------------- body ----------------------------------- */
-
-function CardBody({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
-  switch (card.type) {
-    case "news_scout":
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.actionUrl ? (
-              <a
-                href={card.actionUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-              >
-                {card.title}
-              </a>
-            ) : (
-              card.title
-            )}
-          </h2>
-          <RichText
-            text={card.summary}
-            className="mt-2 text-[0.925rem] leading-relaxed text-neutral-600 dark:text-neutral-300"
-          />
-        </>
-      );
-
-    case "time_window":
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.actionUrl ? (
-              <a
-                href={card.actionUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-              >
-                {card.title}
-              </a>
-            ) : (
-              card.title
-            )}
-          </h2>
-          <RichText
-            text={card.summary}
-            className="mt-2 text-[0.925rem] leading-relaxed text-neutral-600 dark:text-neutral-300"
-          />
-        </>
-      );
-
-    case "social_ping":
-      return (
-        <>
-          <RichText
-            text={card.message}
-            className="text-[0.975rem] leading-relaxed text-neutral-800 dark:text-neutral-100"
-          />
-          {card.link && (
-            <a
-              href={card.link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              {safeHostname(card.link)}
-            </a>
-          )}
-        </>
-      );
-
-    case "social_invite": {
-      const tz = clientTimeZone();
-      const conflict = conflictMeta(card, busy, tz);
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.eventTitle}
-          </h2>
-          <div className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
-            <p className="font-medium text-neutral-700 dark:text-neutral-200">
-              {card.eventTime}
-              {conflict && (
-                <span
-                  className={
-                    conflict.conflict
-                      ? "font-normal text-amber-600 dark:text-amber-400"
-                      : "font-normal text-neutral-400 dark:text-neutral-500"
-                  }
-                >
-                  {" · "}
-                  {conflict.text}
-                </span>
-              )}
-            </p>
-            {card.location && (
-              <p className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-neutral-400" />
-                {card.location}
-              </p>
-            )}
-            {card.note && <RichText text={card.note} className="pt-1 leading-relaxed" />}
-            {card.sourceUrl && (
-              <a
-                href={card.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 pt-1 text-sm font-medium text-fuchsia-600 hover:underline dark:text-fuchsia-400"
-              >
-                <Link2 className="h-3.5 w-3.5" />
-                Original details
-              </a>
-            )}
-          </div>
-          <FeeRow card={card} />
-        </>
-      );
-    }
-
-    case "calendar_radar":
-      return (
-        <>
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-              {card.title}
-            </h2>
-            <span className="shrink-0 text-sm font-medium text-sky-600 dark:text-sky-400">
-              {card.time}
-            </span>
-          </div>
-          <div className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
-            {card.location && (
-              <p className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-neutral-400" />
-                {card.location}
-              </p>
-            )}
-            {card.details && <p className="leading-relaxed">{card.details}</p>}
-          </div>
-        </>
-      );
-
-    case "event_update":
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.eventTitle}
-          </h2>
-          <p className="mt-2 text-[0.925rem] leading-relaxed text-neutral-600 dark:text-neutral-300">
-            <span className="font-medium text-neutral-700 dark:text-neutral-200">{card.hostName}</span>{" "}
-            updated the plan.
-          </p>
-          <div className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
-            {card.eventTime && (
-              <p className="font-medium text-neutral-700 dark:text-neutral-200">{card.eventTime}</p>
-            )}
-            {card.location && (
-              <p className="flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-neutral-400" />
-                {card.location}
-              </p>
-            )}
-          </div>
-        </>
-      );
-
-    case "social_post":
-      return (
-        <>
-          {card.eventTitle && (
-            <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
-              shared to <span className="font-medium">{card.eventTitle}</span>
-            </p>
-          )}
-          {card.imageUrls.length > 0 && (
-            <PhotoGallery images={card.imageUrls} alt={card.caption ?? "Post image"} />
-          )}
-          {card.caption && (
-            <RichText
-              text={card.caption}
-              className="mt-2 text-[0.95rem] leading-relaxed text-neutral-800 dark:text-neutral-100"
-            />
-          )}
-        </>
-      );
-
-    case "time_poll":
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.title}
-          </h2>
-          <p className="mt-1 text-[0.925rem] leading-relaxed text-neutral-600 dark:text-neutral-300">
-            <span className="font-medium text-neutral-700 dark:text-neutral-200">{card.senderName}</span> is
-            finding a time
-            {card.optionCount ? ` — ${card.optionCount} option${card.optionCount === 1 ? "" : "s"}` : ""}. Mark
-            when you&rsquo;re free.
-          </p>
-        </>
-      );
-
-    case "broadcast_bundle":
-      return (
-        <>
-          <h2 className="text-[1.05rem] font-semibold leading-snug text-neutral-900 dark:text-neutral-50">
-            {card.senderName} — {card.count} events
-          </h2>
-          <ul className="mt-2 space-y-1">
-            {card.titles.slice(0, 4).map((t, i) => (
-              <li key={i} className="flex items-start gap-1.5 text-[0.925rem] text-neutral-600 dark:text-neutral-300">
-                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-neutral-300 dark:bg-neutral-600" />
-                {t}
-              </li>
-            ))}
-            {card.titles.length > 4 && (
-              <li className="text-xs text-neutral-400 dark:text-neutral-500">
-                +{card.titles.length - 4} more
-              </li>
-            )}
-          </ul>
-        </>
-      );
-  }
-}
-
-function safeHostname(url: string): string {
-  try {
-    return new URL(url).hostname.replace("www.", "");
-  } catch {
-    return "link";
-  }
-}
-
-/** Integer cents → "$40" / "$16.67". */
-function money(cents: number): string {
-  const dollars = cents / 100;
-  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
-}
-
-/**
- * The participation-fee row on an invite: the amount, an optional Pay deep-link,
- * and a manual "Mark as paid" tap. No real money moves — the tap only records the
- * attendee's own confirmation (optimistic, reverts on error).
- */
-function FeeRow({ card }: { card: Extract<DigestCardData, { type: "social_invite" }> }) {
-  const [paid, setPaid] = useState(!!card.feePaid);
-  const [pending, setPending] = useState(false);
-
-  if (!card.fee || card.fee <= 0) return null;
-
-  const venmoHref = card.venmoId
-    ? `https://venmo.com/${card.venmoId}?txn=pay&amount=${(card.fee / 100).toFixed(2)}`
-    : null;
-  const linkHref = card.paymentLink
-    ? /^https?:\/\//i.test(card.paymentLink)
-      ? card.paymentLink
-      : `https://${card.paymentLink}`
-    : null;
-  const payHref = venmoHref ?? linkHref;
-
-  async function toggle() {
-    if (pending) return;
-    const next = !paid;
-    setPaid(next);
-    setPending(true);
-    const res = await setFeePaid(card.id, next);
-    setPending(false);
-    if (!res.ok) setPaid(!next);
-  }
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-950">
-      <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-50">
-        <DollarSign className="h-4 w-4 text-neutral-400" strokeWidth={2} />
-        {money(card.fee)} to join
-      </span>
-      {payHref && (
-        <a
-          href={payHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-sm font-medium text-fuchsia-600 hover:underline dark:text-fuchsia-400"
-        >
-          <Link2 className="h-3.5 w-3.5" /> {venmoHref ? "Pay on Venmo" : "Pay"}
-        </a>
-      )}
-      {card.zelleId && (
-        <span className="text-xs text-neutral-500 dark:text-neutral-400">Zelle: {card.zelleId}</span>
-      )}
-      <button
-        type="button"
-        onClick={toggle}
-        disabled={pending}
-        className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition disabled:opacity-60 ${
-          paid
-            ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20"
-            : "bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-        }`}
-      >
-        {paid ? (
-          <>
-            <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> Paid
-          </>
-        ) : (
-          "Mark as paid"
-        )}
-      </button>
-    </div>
-  );
-}
-
-/* -------------------------------- actions --------------------------------- */
-
-function PrimaryButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-    >
-      {children}
-    </button>
-  );
-}
-
-function SecondaryButton({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1.5 rounded-full border border-neutral-300 bg-white px-3.5 py-2 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
-    >
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({
-  onClick,
-  label,
-  icon: Icon = X,
-}: {
-  onClick: () => void;
-  label: string;
-  icon?: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-    >
-      <Icon className="h-4 w-4" strokeWidth={2.25} />
-      {label}
-    </button>
-  );
-}
-
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
-function isoHasClock(iso?: string): boolean {
+function isoHasClock(iso?: string | null): boolean {
   if (!iso) return false;
   const s = String(iso).trim();
   return !DATE_ONLY.test(s) && /T\d{2}:\d{2}/.test(s);
@@ -662,17 +586,12 @@ const MONTH_KEYS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep
 const MONTH_RE =
   "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?";
 
-/**
- * Best-effort, ZERO-COST client-side parse of a date/time out of free text
- * (title + summary), used only to PREFILL the picker when the scout didn't
- * already provide a structured date. Handles "August 11", "Aug 11 at 8pm",
- * "8pm on Aug 11", "11 August", "8:30 PM". Returns null if nothing confident.
- */
+/** Zero-cost parse of a date/time from free text, used only to prefill the
+ *  picker or label an undated card. Null if nothing confident. */
 function guessDateTime(text: string): DTValue | null {
   const t = text.toLowerCase();
   let mo = -1;
   let day = -1;
-
   let m = t.match(new RegExp(`\\b(${MONTH_RE})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`));
   if (m) {
     mo = MONTH_KEYS.indexOf(m[1].slice(0, 3));
@@ -686,7 +605,6 @@ function guessDateTime(text: string): DTValue | null {
   }
   if (mo < 0 || day < 1 || day > 31) return null;
 
-  // Optional time: "8pm", "8:30 pm", "20:00".
   let time: string | null = null;
   const tm = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
   if (tm) {
@@ -698,33 +616,28 @@ function guessDateTime(text: string): DTValue | null {
     if (t24) time = `${t24[1].padStart(2, "0")}:${t24[2]}`;
   }
 
-  // Year: explicit if present, else the next occurrence (allow ~2 months slack).
   const ym = t.match(/\b(20\d{2})\b/);
   let year = ym ? parseInt(ym[1], 10) : new Date().getFullYear();
   if (!ym) {
     const candidate = new Date(year, mo, day).getTime();
     if (candidate < Date.now() - 60 * 86_400_000) year += 1;
   }
-
   const date = `${year}-${String(mo + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return { date, time };
 }
 
-/** Format a guessed {date,time} for display (no weekday — it's a guess, and
- *  dropping it keeps SSR/client output identical). "Aug 11" / "Aug 11 · 8:00 PM". */
+/** "Aug 11" / "Aug 11 · 8:00 PM" for a guessed date. */
 function formatGuess(g: DTValue): string {
   const [y, mo, d] = g.date.split("-").map(Number);
   if (!y || !mo || !d) return "";
-  const dateObj = new Date(Date.UTC(y, mo - 1, d, 12));
-  const datePart = dateObj.toLocaleDateString("en-US", {
+  const datePart = new Date(Date.UTC(y, mo - 1, d, 12)).toLocaleDateString("en-US", {
     timeZone: "UTC",
     month: "short",
     day: "numeric",
   });
   if (!g.time) return datePart;
   const [hh, mm] = g.time.split(":").map(Number);
-  const timeObj = new Date(Date.UTC(2000, 0, 1, hh || 0, mm || 0));
-  const timePart = timeObj.toLocaleTimeString("en-US", {
+  const timePart = new Date(Date.UTC(2000, 0, 1, hh || 0, mm || 0)).toLocaleTimeString("en-US", {
     timeZone: "UTC",
     hour: "numeric",
     minute: "2-digit",
@@ -733,11 +646,8 @@ function formatGuess(g: DTValue): string {
 }
 
 /** The picker's initial value: structured scout date → text guess → today. */
-function initialPickerValue(
-  card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>,
-): DTValue {
+function initialPickerValue(card: Scouted): DTValue {
   const tz = clientTimeZone();
-
   if (card.type === "time_window") {
     const iso = card.opensAt ?? card.expiresAt;
     if (iso && !Number.isNaN(Date.parse(iso))) {
@@ -745,190 +655,8 @@ function initialPickerValue(
       if (loc) return { date: loc.date, time: isoHasClock(iso) ? loc.time : null };
     }
   }
-
   const guess = guessDateTime(`${card.title}. ${card.summary}`);
   if (guess) return guess;
-
   const today = localFromIso(new Date().toISOString(), tz)?.date ?? "";
   return { date: today, time: null };
-}
-
-/**
- * Add-to-Calendar (secondary action) for a scouted card. Opens an inline date
- * picker prefilled with the event's known date/time (or a best guess from the
- * text). Confirming makes the card an owned, editable personal event and it
- * leaves the deck.
- */
-function AddToCalendar({
-  card,
-  onAdded,
-}: {
-  card: Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
-  onAdded: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [value, setValue] = useState<DTValue>({ date: "", time: null });
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!open) {
-    return (
-      <SecondaryButton
-        onClick={() => {
-          setValue(initialPickerValue(card));
-          setError(null);
-          setOpen(true);
-        }}
-      >
-        <CalendarPlus className="h-4 w-4" strokeWidth={2.25} />
-        Add to Calendar
-      </SecondaryButton>
-    );
-  }
-
-  return (
-    <div className="w-full space-y-2">
-      <p className="text-xs text-neutral-500 dark:text-neutral-400">Add to your calendar:</p>
-      <DateTimeField value={value} onChange={setValue} />
-      {error && <p className="text-xs text-rose-600 dark:text-rose-400">{error}</p>}
-      <div className="flex items-center gap-2">
-        <PrimaryButton
-          disabled={pending}
-          onClick={async () => {
-            if (!value.date) {
-              setError("Pick a date.");
-              return;
-            }
-            const iso = isoFromLocal(value.date, value.time, clientTimeZone());
-            if (!iso) {
-              setError("Pick a valid date.");
-              return;
-            }
-            setPending(true);
-            setError(null);
-            const r = await addScoutedToCalendar({ id: card.id, startsAt: iso, hasTime: value.time !== null });
-            if (r.ok) {
-              onAdded();
-              return;
-            }
-            setPending(false);
-            setError(r.error ?? "Couldn't add that.");
-          }}
-        >
-          {pending ? "Adding…" : "Add"}
-        </PrimaryButton>
-        <GhostButton onClick={() => setOpen(false)} label="Cancel" />
-      </div>
-    </div>
-  );
-}
-
-const REACTIONS = ["👍", "❤️", "🎉"];
-
-function CardActions({
-  card,
-  onResolve,
-}: {
-  card: DigestCardData;
-  onResolve: (id: string, status: ResolveStatus) => void;
-}) {
-  const dismiss = (
-    <GhostButton onClick={() => onResolve(card.id, "dismissed")} label="Dismiss" />
-  );
-
-  switch (card.type) {
-    case "social_ping":
-      return (
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            {REACTIONS.map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => onResolve(card.id, "saved")}
-                aria-label={`React ${r} and save`}
-                className="rounded-full border border-neutral-200 px-2.5 py-1.5 text-base leading-none transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-              >
-                {r}
-              </button>
-            ))}
-          </div>
-          <div className="ml-auto">{dismiss}</div>
-        </div>
-      );
-
-    case "social_invite":
-      return (
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={() => onResolve(card.id, "accepted")}>
-            <Check className="h-4 w-4" strokeWidth={2.25} />
-            Going
-          </PrimaryButton>
-          <GhostButton onClick={() => onResolve(card.id, "dismissed")} label="Can't make it" />
-        </div>
-      );
-
-    // Scouted cards: the source link is the primary action; Add to Calendar is
-    // the secondary option (opens a prefilled date picker).
-    case "news_scout":
-    case "time_window": {
-      const url = card.actionUrl;
-      return (
-        <div className="flex flex-wrap items-center gap-2">
-          {url ? (
-            <PrimaryButton onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>
-              {card.actionLabel}
-              <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
-            </PrimaryButton>
-          ) : null}
-          <AddToCalendar card={card} onAdded={() => onResolve(card.id, "accepted")} />
-          <div className="ml-auto">{dismiss}</div>
-        </div>
-      );
-    }
-
-    case "calendar_radar":
-      return (
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={() => onResolve(card.id, "accepted")}>
-            Add to Calendar
-          </PrimaryButton>
-          {dismiss}
-        </div>
-      );
-
-    case "event_update":
-      return (
-        <div className="flex items-center gap-2">
-          <GhostButton onClick={() => onResolve(card.id, "dismissed")} label="Got it" icon={Check} />
-        </div>
-      );
-
-    case "social_post":
-      return <div className="flex items-center gap-2">{dismiss}</div>;
-
-    case "time_poll":
-      return (
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={() => window.location.assign(`/poll/${card.pollId}`)}>
-            Respond
-            <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
-          </PrimaryButton>
-          <div className="ml-auto">{dismiss}</div>
-        </div>
-      );
-
-    case "broadcast_bundle":
-      return (
-        <div className="flex items-center gap-2">
-          <PrimaryButton onClick={() => window.location.assign(`/u/${card.senderId}`)}>
-            View all
-            <ArrowUpRight className="h-4 w-4" strokeWidth={2.25} />
-          </PrimaryButton>
-          <div className="ml-auto">
-            <GhostButton onClick={() => onResolve(card.id, "dismissed")} label="Dismiss all" />
-          </div>
-        </div>
-      );
-  }
 }

@@ -20,7 +20,7 @@ export default async function OnboardingPage() {
     .select("username")
     .eq("id", user.id)
     .maybeSingle();
-  if (profile?.username) redirect("/");
+  if (profile?.username) redirect("/calendar");
 
   return (
     <main className="flex min-h-dvh items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">

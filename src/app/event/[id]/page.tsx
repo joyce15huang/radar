@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { EventActions } from "@/components/EventActions";
@@ -11,6 +11,11 @@ import { LedgerSection } from "@/components/LedgerSection";
 import { TaskSection } from "@/components/TaskSection";
 import { CommentsSection } from "@/components/CommentsSection";
 import { Section } from "@/components/Section";
+import { EventFeePanel } from "@/components/EventFeePanel";
+import { PostComposer } from "@/components/PostComposer";
+import { serverTimeZone } from "@/lib/tz";
+import { dayInTz } from "@/lib/calendarSort";
+import { publicImageUrl } from "@/lib/storage";
 
 interface EventRow {
   id: string;
@@ -92,72 +97,173 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   const when = ev.event_time ?? "";
   const sourceUrl = ev.source_url ?? null;
 
+  // Before the event the page is for planning; once its day has passed it
+  // leads with photos and settling up, and tucks the plan away.
+  const tz = await serverTimeZone();
+  const eventDay = ev.starts_at ? dayInTz(ev.starts_at, tz) : null;
+  const today = dayInTz(Date.now(), tz);
+  const isPast = !!eventDay && !!today && eventDay < today;
+
+  // Photos = posts linked to this event, from anyone on it.
+  let photos: string[] = [];
+  let photoPeople = 0;
+  if (isPast) {
+    const { data: postRows } = await admin
+      .from("posts")
+      .select("author_id, image_path, image_paths, created_at")
+      .eq("event_id", id)
+      .order("created_at", { ascending: false });
+    const rows = (postRows ?? []) as {
+      author_id: string;
+      image_path: string | null;
+      image_paths: string[] | null;
+    }[];
+    photoPeople = new Set(rows.map((r) => r.author_id)).size;
+    photos = rows
+      .flatMap((r) => (r.image_paths?.length ? r.image_paths : r.image_path ? [r.image_path] : []))
+      .map((path) => publicImageUrl(path))
+      .filter((u): u is string => !!u)
+      .slice(0, 30);
+  }
+
+  const headerData = {
+    eventId: id,
+    isHost,
+    title,
+    when,
+    location: ev.location ?? "",
+    hostName,
+    displayNote: ev.note || ev.summary || "",
+    sourceUrl,
+    startsAt: ev.starts_at ?? null,
+    hasTime,
+    note: ev.note ?? "",
+    feeCents,
+    paymentLink: ev.payment_link ?? "",
+    venmoId: ev.venmo_id ?? "",
+    zelleId: ev.zelle_id ?? "",
+    allowReinvite,
+    cardId: myCard?.id as string | undefined,
+    feePaid,
+    modules,
+  };
+
+  const people = (
+    <PeopleSection
+      eventId={id}
+      eventTitle={title}
+      canInvite={isHost || (isGuest && allowReinvite)}
+      isHost={isHost}
+      allowReinvite={allowReinvite}
+    />
+  );
+  const chat = (
+    <Section title="Chat">
+      <CommentsSection eventId={id} />
+    </Section>
+  );
+
   return (
-    <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
-        <Link
-          href="/calendar"
-          className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 transition hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100"
-        >
-          <ArrowLeft className="h-4 w-4" /> Calendar
-        </Link>
-
-        {/* Overview + host edit */}
-        <EventHeader
-          data={{
-            eventId: id,
-            isHost,
-            title,
-            when,
-            location: ev.location ?? "",
-            hostName,
-            displayNote: ev.note || ev.summary || "",
-            sourceUrl,
-            startsAt: ev.starts_at ?? null,
-            hasTime,
-            note: ev.note ?? "",
-            feeCents,
-            paymentLink: ev.payment_link ?? "",
-            venmoId: ev.venmo_id ?? "",
-            zelleId: ev.zelle_id ?? "",
-            allowReinvite,
-            cardId: myCard?.id as string | undefined,
-            feePaid,
-            modules,
-          }}
-        />
-
-        {isGuest && (
-          <div className="mb-5">
-            <EventActions
-              data={{
-                cardId: myCard?.id as string | undefined,
-                isHost,
-                status: rsvpStatus,
-              }}
-            />
-          </div>
-        )}
-
-        <div className="mt-6 space-y-8">
-          <PeopleSection
-            eventId={id}
-            eventTitle={title}
-            canInvite={isHost || (isGuest && allowReinvite)}
-            isHost={isHost}
-            allowReinvite={allowReinvite}
-          />
-
-          {hasMod("carpool") && <CarpoolSection eventId={id} />}
-
-          {hasMod("expenses") && <LedgerSection eventId={id} />}
-
-          {hasMod("tasks") && <TaskSection eventId={id} />}
-
-          <Section title="Comments">
-            <CommentsSection eventId={id} />
-          </Section>
+    <main className="min-h-dvh bg-linen">
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-3 sm:px-6 sm:pt-6">
+        <div className="mb-2 flex h-12 items-center">
+          <Link
+            href="/calendar"
+            aria-label="Back to Calendar"
+            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-neutral-900 transition hover:bg-neutral-200/60"
+          >
+            <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+          </Link>
         </div>
+
+        {isPast ? (
+          <>
+            <header className="mb-6 space-y-1.5">
+              <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">{title}</h1>
+              <p className="text-sm text-neutral-600">
+                {[when, ev.location].filter(Boolean).join(" · ")}
+              </p>
+            </header>
+
+            <div className="space-y-8">
+              <section className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-[17px] font-semibold text-neutral-900">Photos</h2>
+                    <p className="text-[13px] text-neutral-600">
+                      {photos.length > 0
+                        ? `${photos.length} from ${photoPeople} ${photoPeople === 1 ? "person" : "people"}`
+                        : "No photos yet"}
+                    </p>
+                  </div>
+                  <PostComposer eventId={id} eventDate={eventDay} variant="button" />
+                </div>
+                {photos.length > 0 ? (
+                  <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
+                    {photos.map((src, i) => (
+                      <a
+                        key={`${src}-${i}`}
+                        href={src}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="h-[200px] w-[150px] shrink-0 snap-start overflow-hidden rounded-2xl bg-neutral-200"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={src} alt={`Photo ${i + 1} from ${title}`} className="h-full w-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-8 text-center text-sm text-neutral-600">
+                    Add the first photos from {title}.
+                  </div>
+                )}
+              </section>
+
+              {feeCents > 0 && (
+                <EventFeePanel
+                  cardId={myCard?.id as string | undefined}
+                  feeCents={feeCents}
+                  venmoId={ev.venmo_id || null}
+                  zelleId={ev.zelle_id || null}
+                  paymentLink={ev.payment_link || null}
+                  feePaid={feePaid}
+                  isHost={isHost}
+                  note={title}
+                />
+              )}
+              {hasMod("expenses") && <LedgerSection eventId={id} />}
+              {chat}
+
+              <details className="group rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between px-4 text-[15px] font-medium text-neutral-900 [&::-webkit-details-marker]:hidden">
+                  Event details
+                  <ChevronRight className="h-4 w-4 text-neutral-500 transition group-open:rotate-90" />
+                </summary>
+                <div className="space-y-8 border-t border-neutral-100 p-4">
+                  <EventHeader data={headerData} />
+                  {people}
+                  {hasMod("carpool") && <CarpoolSection eventId={id} />}
+                  {hasMod("tasks") && <TaskSection eventId={id} />}
+                </div>
+              </details>
+            </div>
+          </>
+        ) : (
+          <>
+            <EventHeader data={headerData} />
+            <div className="space-y-8">
+              {isGuest && (
+                <EventActions data={{ cardId: myCard?.id as string | undefined, isHost, status: rsvpStatus }} />
+              )}
+              {people}
+              {hasMod("carpool") && <CarpoolSection eventId={id} />}
+              {hasMod("tasks") && <TaskSection eventId={id} />}
+              {hasMod("expenses") && <LedgerSection eventId={id} />}
+              {chat}
+            </div>
+          </>
+        )}
       </div>
     </main>
   );

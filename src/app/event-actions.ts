@@ -268,7 +268,7 @@ export async function inviteToEvent(input: {
     if (error) return { ok: false, error: error.message };
   }
 
-  revalidatePath("/");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { ok: true, sent: targets.length, notFound, eventId: event.id };
 }
@@ -411,7 +411,7 @@ export async function updateHostEvent(input: {
     await admin.from("cards").insert(updateRows);
   }
 
-  revalidatePath("/");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { ok: true, when, startsAt };
 }
@@ -486,7 +486,7 @@ export async function setFeePaid(cardId: string, paid: boolean): Promise<FeePaid
     .eq("user_id", actorId);
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { ok: true };
 }

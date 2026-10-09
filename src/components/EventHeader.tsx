@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Check, Plus, Loader2, Users, Crown, MapPin, CalendarClock, Link2 } from "lucide-react";
+import { Pencil, Check, Plus, Loader2, Users, Crown, MapPin, CalendarClock, Link2, ArrowUpRight } from "lucide-react";
 import { updateHostEvent, toggleReinvite } from "@/app/event-actions";
 import { setEventModules } from "@/app/module-actions";
 import { EventFeePanel } from "./EventFeePanel";
@@ -228,36 +228,81 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
     );
   }
 
+  const tile = headerTile(data.startsAt, data.hasTime, tz);
+  const rel = relativeDay(data.startsAt, tz);
+  const mapsHref = data.location
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.location)}`
+    : null;
+
   return (
-    <header className="mb-5">
-      <div className="flex items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-          {data.title}
-        </h1>
-        {data.isHost && (
-          <button type="button" onClick={() => setEditing(true)} className={`${neutralPill} shrink-0`}>
-            <Pencil className="h-4 w-4" /> Edit
-          </button>
-        )}
-      </div>
-      <div className="mt-2 space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
-        {data.when && (
-          <p className="flex items-center gap-1.5 font-medium text-neutral-700 dark:text-neutral-200">
-            <CalendarClock className="h-4 w-4 text-neutral-400" />
-            {data.when}
-          </p>
-        )}
-        {data.location && (
-          <p className="flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 text-neutral-400" />
-            {data.location}
-          </p>
-        )}
-        <p className="flex items-center gap-1.5 text-neutral-500 dark:text-neutral-400">
-          <Crown className="h-4 w-4 text-fuchsia-400" />
-          {data.isHost ? "You're hosting" : `Hosted by ${data.hostName}`}
+    <header className="mb-6 space-y-5">
+      <div className="space-y-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">{data.title}</h1>
+          {data.isHost && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </button>
+          )}
+        </div>
+        <p className="flex items-center gap-2 text-sm text-neutral-600">
+          <Crown className="h-4 w-4 text-fuchsia-600" />
+          {data.isHost ? (
+            "You're hosting"
+          ) : (
+            <span>
+              Hosted by <span className="font-semibold text-neutral-900">{data.hostName}</span>
+            </span>
+          )}
         </p>
       </div>
+
+      {(data.when || data.location) && (
+        <div className="divide-y divide-neutral-100 rounded-[20px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          {data.when && (
+            <div className="flex items-center gap-3.5 px-4 py-3.5">
+              {tile ? (
+                <div className="flex w-12 shrink-0 flex-col items-center rounded-xl bg-neutral-100 py-1.5">
+                  <span className="text-[10px] font-semibold tracking-wider text-neutral-600">{tile.top}</span>
+                  <span className="text-xl font-bold leading-tight text-neutral-900">{tile.day}</span>
+                </div>
+              ) : (
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-100">
+                  <CalendarClock className="h-5 w-5 text-neutral-600" />
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-[15px] font-semibold text-neutral-900">{data.when}</p>
+                {rel && <p className="text-[13px] text-neutral-600">{rel}</p>}
+              </div>
+            </div>
+          )}
+          {data.location && (
+            <div className="flex items-center gap-3.5 px-4 py-3.5">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                <MapPin className="h-5 w-5 text-emerald-700" />
+              </span>
+              <p className="min-w-0 flex-1 text-[15px] font-semibold text-neutral-900">{data.location}</p>
+              {mapsHref && (
+                <a
+                  href={mapsHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open in Maps"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200 text-neutral-700 transition hover:bg-neutral-50"
+                >
+                  <ArrowUpRight className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {data.feeCents > 0 && (
         <EventFeePanel
           cardId={data.cardId}
@@ -270,21 +315,58 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
           note={data.title}
         />
       )}
+
       {data.displayNote && (
-        <p className="mt-3 whitespace-pre-wrap text-[0.95rem] leading-relaxed text-neutral-600 dark:text-neutral-300">
-          {data.displayNote}
-        </p>
+        <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+          <p className="text-[13px] font-semibold text-neutral-600">
+            {data.isHost ? "Your note" : `From ${data.hostName}`}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{data.displayNote}</p>
+        </div>
       )}
+
       {data.sourceUrl && (
         <a
           href={data.sourceUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:underline dark:text-amber-400"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-neutral-700 hover:underline"
         >
           <Link2 className="h-3.5 w-3.5" /> Original details
         </a>
       )}
     </header>
   );
+}
+
+/** Weekday (this week) or month, plus day number, for the header date tile. */
+function headerTile(iso: string | null, _hasTime: boolean, tz: string): { top: string; day: string } | null {
+  if (!iso || Number.isNaN(Date.parse(iso))) return null;
+  const loc = localFromIso(iso, tz);
+  if (!loc?.date) return null;
+  const [y, m, d] = loc.date.split("-").map(Number);
+  const noon = new Date(Date.UTC(y, m - 1, d, 12));
+  const days = (noon.getTime() - Date.now()) / 86_400_000;
+  const top =
+    days > -1 && days < 6.5
+      ? noon.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })
+      : noon.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return { top: top.toUpperCase(), day: String(d) };
+}
+
+/** "Today" / "Tomorrow" / "In 3 days" / "2 days ago" for the event day. */
+function relativeDay(iso: string | null, tz: string): string {
+  if (!iso) return "";
+  const day = localFromIso(iso, tz)?.date;
+  const today = localFromIso(new Date().toISOString(), tz)?.date;
+  if (!day || !today) return "";
+  const toUtc = (s: string) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const diff = Math.round((toUtc(day) - toUtc(today)) / 86_400_000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff === -1) return "Yesterday";
+  return diff > 1 ? `In ${diff} days` : `${-diff} days ago`;
 }

@@ -89,7 +89,7 @@ export function EventFormFab() {
   return (
     <>
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40">
-        <div className="mx-auto flex max-w-xl justify-end px-4 pb-6 sm:px-6">
+        <div className="mx-auto flex max-w-xl justify-end px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6">
           <button
             type="button"
             onClick={() => {

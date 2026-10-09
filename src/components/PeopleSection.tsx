@@ -27,21 +27,19 @@ export function PeopleSection({
   return (
     <section className="space-y-2">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Guests
-        </h2>
+        <h2 className="text-[17px] font-semibold text-neutral-900">Guests</h2>
         {canInvite && (
           <button
             type="button"
             onClick={() => setInviting(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
           >
-            <UserPlus className="h-3.5 w-3.5" /> Invite friends
+            <UserPlus className="h-4 w-4" /> Invite
           </button>
         )}
       </div>
 
-      <div className="rounded-2xl border border-neutral-200/70 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
         <GuestFaces eventId={eventId} />
       </div>
 

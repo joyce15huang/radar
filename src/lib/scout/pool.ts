@@ -100,6 +100,18 @@ export async function upsertPoolEvents(
  * drops a same-event dupe that a different outlet worded differently. Soonest-
  * ending first.
  */
+/** Normalize a 1-3 word topic label to a family key: "Meteor Showers" -> "meteor shower". */
+export function topicFamily(topic: string | null | undefined): string | null {
+  if (!topic) return null;
+  const words = topic
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w));
+  return words.length ? words.join(" ") : null;
+}
+
 export async function drawFromPool(
   admin: SupabaseClient,
   locations: string[],
@@ -107,6 +119,13 @@ export async function drawFromPool(
   startISO: string,
   limit: number,
   excludeTopics: Set<string> = new Set(),
+  /**
+   * Topic FAMILIES (normalized 1-3 word `topic` labels, e.g. "meteor shower")
+   * already on the deck. At most ONE card per family is drawn, and each pick is
+   * ADDED to this set — so pass the same Set across calls to keep the whole deck
+   * diverse (never four meteor-shower stories from four outlets).
+   */
+  excludeFamilies: Set<string> = new Set(),
 ): Promise<PoolEvent[]> {
   const locs = [...new Set(locations.map(normalizeLocation).filter(Boolean))];
   if (!locs.length || limit <= 0) return [];
@@ -116,12 +135,16 @@ export async function drawFromPool(
     .in("location", locs)
     .gt("prune_at", startISO)
     .order("prune_at", { ascending: true })
-    .limit(limit + excludeKeys.size + excludeTopics.size + 10);
+    // Over-fetch: the family cap skips same-kind rows, so read deeper.
+    .limit(Math.max(60, (limit + excludeKeys.size + excludeTopics.size) * 4));
   const rows = (data ?? []) as PoolEvent[];
   const out: PoolEvent[] = [];
   for (const r of rows) {
     if (excludeKeys.has(r.dedup_key)) continue;
     if (r.topic_key && excludeTopics.has(r.topic_key)) continue;
+    const fam = topicFamily(r.topic);
+    if (fam && excludeFamilies.has(fam)) continue;
+    if (fam) excludeFamilies.add(fam);
     out.push(r);
     if (out.length >= limit) break;
   }

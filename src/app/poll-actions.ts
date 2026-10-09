@@ -637,6 +637,6 @@ export async function finalizePoll(pollId: string, optionId: string): Promise<Po
 
   await admin.from("time_polls").update({ status: "closed", event_id: event.id }).eq("id", pollId);
   revalidatePath(`/poll/${pollId}`);
-  revalidatePath("/");
+  revalidatePath("/today");
   return { ok: true, pollId, eventId: event.id as string };
 }

@@ -50,7 +50,7 @@ async function runFill(extra?: number): Promise<GenState> {
       todayISO: new Date().toISOString().slice(0, 10),
       ...(extra ? { extra } : {}),
     });
-    revalidatePath("/");
+    revalidatePath("/today");
     if (r.error) return { status: "error", message: r.error };
     return { status: "done", generated: r.filled };
   } catch (e) {
@@ -131,7 +131,7 @@ export async function addScoutedToCalendar(input: {
     .eq("user_id", actorId);
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/");
+  revalidatePath("/today");
   revalidatePath("/calendar");
   return { ok: true, when };
 }

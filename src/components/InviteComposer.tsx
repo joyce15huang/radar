@@ -57,6 +57,13 @@ export function InviteComposer({
     };
   }, []);
 
+  // Refresh only once the sheet closes: promoting an item remounts the calendar
+  // list, which would otherwise unmount this sheet before the success screen.
+  const close = () => {
+    if (result) router.refresh();
+    onClose();
+  };
+
   async function send() {
     // Invite by @username; inviteToEvent resolves usernames (and emails) server-side.
     const list = selected.map((f) => f.username).filter(Boolean);
@@ -78,13 +85,12 @@ export function InviteComposer({
       return;
     }
     setResult({ sent: res.sent ?? 0, notFound: res.notFound ?? [], eventId: res.eventId });
-    router.refresh();
   }
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      onClick={onClose}
+      onClick={close}
     >
       <div
         className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 shadow-xl dark:bg-neutral-900 sm:rounded-3xl"
@@ -94,7 +100,7 @@ export function InviteComposer({
           <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">{heading}</h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             aria-label="Close"
             className="rounded-full p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
           >
@@ -110,33 +116,33 @@ export function InviteComposer({
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-400">
               <Check className="h-7 w-7" strokeWidth={2.5} />
             </div>
-            <h3 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
-              {isPromote ? "Now a shared event" : result.sent > 0 ? "Invite sent" : "No new invites"}
+            <h3 className="text-lg font-semibold text-neutral-900">
+              {result.sent > 0 ? "Invite sent" : isPromote ? "Shared event created" : "No new invites"}
             </h3>
-            <p className="mt-1 max-w-xs text-sm text-neutral-500 dark:text-neutral-400">
-              {isPromote && `You're hosting it${result.sent > 0 ? " — " : "."}`}
+            <p className="mt-1 max-w-xs text-sm text-neutral-500">
               {result.sent > 0
-                ? `it's on top of ${result.sent} friend${result.sent === 1 ? "'s" : "s'"} Today deck.`
+                ? `It's on ${
+                    result.sent === 1 ? "their" : `${result.sent} friends'`
+                  } calendar to accept or decline.`
                 : isPromote
                   ? ""
                   : "Everyone you listed is already on the guest list."}
               {result.notFound.length > 0 && ` Not on the app yet: ${result.notFound.join(", ")}.`}
             </p>
-            {isPromote && result.eventId ? (
+            <button
+              type="button"
+              onClick={close}
+              className="mt-6 rounded-full bg-neutral-900 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-neutral-700"
+            >
+              Done
+            </button>
+            {isPromote && result.eventId && (
               <button
                 type="button"
                 onClick={() => router.push(`/event/${result.eventId}`)}
-                className="mt-6 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
+                className="mt-2 rounded-full px-4 py-2 text-sm font-medium text-neutral-600 transition hover:bg-neutral-100"
               >
                 Open event page
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onClose}
-                className="mt-6 rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-              >
-                Done
               </button>
             )}
           </div>
@@ -195,7 +201,7 @@ export function InviteComposer({
               )}
             </button>
             <p className="text-center text-xs text-neutral-400 dark:text-neutral-600">
-              No notification — it appears on top of their Today deck.
+              It shows on their calendar with Accept / Decline, and on top of their Today deck.
             </p>
           </div>
         )}

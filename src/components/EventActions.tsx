@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, X } from "lucide-react";
 import { updateCardStatus } from "@/app/feed-actions";
 
 export interface EventActionData {
@@ -13,20 +12,16 @@ export interface EventActionData {
   status: "accepted" | "pending" | "none";
 }
 
-const pill =
-  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-60";
-const neutralPill = `${pill} border border-neutral-200 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800`;
-const darkPill = `${pill} bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200`;
-
-/** Guest RSVP (Going / Can't make it) for the event detail page. Host edit
- *  lives in the page header (EventHeader). */
+/** Guest RSVP as a segmented control: Going / Can't go. */
 export function EventActions({ data }: { data: EventActionData }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(data.status);
 
   async function rsvp(next: "accepted" | "dismissed") {
     if (!data.cardId || busy) return;
     setBusy(true);
+    setStatus(next === "accepted" ? "accepted" : "none");
     await updateCardStatus(data.cardId, next);
     setBusy(false);
     router.refresh();
@@ -34,28 +29,33 @@ export function EventActions({ data }: { data: EventActionData }) {
 
   if (data.isHost) return null;
 
+  const going = status === "accepted";
+  const cant = status === "none";
+  const seg = "min-h-[44px] rounded-xl text-[15px] font-semibold transition disabled:opacity-60";
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {data.status === "pending" && (
-        <>
-          <button type="button" onClick={() => rsvp("accepted")} disabled={busy} className={darkPill}>
-            <Check className="h-4 w-4" strokeWidth={2.25} /> Going
-          </button>
-          <button type="button" onClick={() => rsvp("dismissed")} disabled={busy} className={neutralPill}>
-            <X className="h-4 w-4" strokeWidth={2.25} /> Can&rsquo;t make it
-          </button>
-        </>
-      )}
-      {data.status === "accepted" && (
-        <>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20">
-            <Check className="h-4 w-4" strokeWidth={2.5} /> You&rsquo;re going
-          </span>
-          <button type="button" onClick={() => rsvp("dismissed")} disabled={busy} className={neutralPill}>
-            Can&rsquo;t make it
-          </button>
-        </>
-      )}
-    </div>
+    <section className="space-y-2.5">
+      <h2 className="text-[13px] font-semibold text-neutral-600">Your RSVP</h2>
+      <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-neutral-200/60 p-1">
+        <button
+          type="button"
+          aria-pressed={going}
+          onClick={() => rsvp("accepted")}
+          disabled={busy}
+          className={`${seg} ${going ? "bg-fuchsia-700 text-white shadow-sm" : "text-neutral-700 hover:bg-white/60"}`}
+        >
+          Going
+        </button>
+        <button
+          type="button"
+          aria-pressed={cant}
+          onClick={() => rsvp("dismissed")}
+          disabled={busy}
+          className={`${seg} ${cant ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-700 hover:bg-white/60"}`}
+        >
+          Can&rsquo;t go
+        </button>
+      </div>
+    </section>
   );
 }

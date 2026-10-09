@@ -44,7 +44,7 @@ export function UsernameForm({
       return;
     }
     if (mode === "onboarding") {
-      router.replace("/");
+      router.replace("/calendar");
       router.refresh();
     } else {
       setSaved(true);

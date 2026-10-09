@@ -35,7 +35,7 @@ export default async function SettingsPage() {
   return (
     <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto min-h-dvh max-w-xl px-4 py-8 sm:px-6 sm:py-12">
-        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/", label: "Back to feed" }} />
+        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/today", label: "Back to feed" }} />
 
         <header className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
