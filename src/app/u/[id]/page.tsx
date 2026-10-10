@@ -4,6 +4,7 @@ import { getActor } from "@/lib/actor";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { type ProfilePost } from "@/components/ProfileWall";
+import { pinnedGridItems, mergeGrid } from "@/lib/gridPins";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
 import { type HostedEventItem } from "@/components/ProfileEvents";
 import { ProfilePanels } from "@/components/ProfilePanels";
@@ -59,7 +60,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
   const [{ data: postRows }, { data: eventRows }, friendState, mutuals] = await Promise.all([
     supabase
       .from("posts")
-      .select("id, image_path, image_paths, caption, created_at, taken_on, event_id, events(title)")
+      .select("*, events(title)")
       .eq("author_id", id)
       .order("created_at", { ascending: false }),
     admin
@@ -78,7 +79,10 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
     location: e.location ?? null,
   }));
 
-  const posts: ProfilePost[] = (postRows ?? []).map((p) => {
+  const ownPosts: ProfilePost[] = (postRows ?? [])
+    // Event-album photos only show here once added to the grid (0039 on_grid).
+    .filter((p) => (p as { on_grid?: boolean | null }).on_grid !== false)
+    .map((p) => {
     const row = p as unknown as PostRow;
     return {
       id: row.id,
@@ -90,6 +94,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
       eventId: row.event_id,
     };
   });
+
+  const posts = mergeGrid(ownPosts, await pinnedGridItems(admin, id));
 
   const links = (profile.links ?? {}) as ProfileHeaderData["links"];
   const header: ProfileHeaderData = {
@@ -106,7 +112,7 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
         <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
         <TabNav />
         <ProfileHeader data={header} targetId={id} friendState={friendState} mutuals={mutuals} />
-        <ProfilePanels posts={posts} events={hosted} isOwner={false} />
+        <ProfilePanels posts={posts} events={hosted} isOwner={false} ownerName={header.name} />
       </div>
     </main>
   );

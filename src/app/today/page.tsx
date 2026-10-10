@@ -106,7 +106,7 @@ export default async function TodayPage() {
 
   return (
     <main className="min-h-dvh bg-linen">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-6 sm:px-6 sm:pt-10">
+      <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-4 pb-[calc(5.25rem+env(safe-area-inset-bottom))] pt-6 sm:px-6 sm:pt-10">
         <TabNav />
 
         {cardsError ? (

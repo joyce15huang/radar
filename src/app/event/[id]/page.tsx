@@ -14,6 +14,8 @@ import { Section } from "@/components/Section";
 import { EventFeePanel } from "@/components/EventFeePanel";
 import { PostComposer } from "@/components/PostComposer";
 import { AddSectionBar } from "@/components/SectionControls";
+import { EventPhotos } from "@/components/EventPhotos";
+import type { ViewerPhoto } from "@/components/PhotoViewer";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
 import { publicImageUrl } from "@/lib/storage";
@@ -106,25 +108,51 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   const isPast = !!eventDay && !!today && eventDay < today;
 
   // Photos = posts linked to this event, from anyone on it.
-  let photos: string[] = [];
+  let photos: ViewerPhoto[] = [];
   let photoPeople = 0;
+  let pinnedKeys: string[] = [];
   if (isPast) {
     const { data: postRows } = await admin
       .from("posts")
-      .select("author_id, image_path, image_paths, created_at")
+      .select("id, author_id, image_path, image_paths, created_at")
       .eq("event_id", id)
       .order("created_at", { ascending: false });
     const rows = (postRows ?? []) as {
+      id: string;
       author_id: string;
       image_path: string | null;
       image_paths: string[] | null;
+      created_at: string;
     }[];
     photoPeople = new Set(rows.map((r) => r.author_id)).size;
+    const authorIds = [...new Set(rows.map((r) => r.author_id))];
+    const [{ data: authors }, { data: pins }] = await Promise.all([
+      authorIds.length
+        ? admin.from("profiles").select("id, username, display_name").in("id", authorIds)
+        : Promise.resolve({ data: [] as { id: string; username: string | null; display_name: string | null }[] }),
+      // Which of these are already on MY grid (0040; empty before it runs).
+      rows.length
+        ? admin.from("grid_pins").select("post_id, image_index").eq("user_id", actorId).in("post_id", rows.map((r) => r.id))
+        : Promise.resolve({ data: [] as { post_id: string; image_index: number }[] }),
+    ]);
+    const nameOf = new Map(
+      (authors ?? []).map((a) => [a.id as string, (a.display_name as string) || (a.username as string) || "someone"]),
+    );
+    pinnedKeys = (pins ?? []).map((p) => `${p.post_id}:${p.image_index}`);
     photos = rows
-      .flatMap((r) => (r.image_paths?.length ? r.image_paths : r.image_path ? [r.image_path] : []))
-      .map((path) => publicImageUrl(path))
-      .filter((u): u is string => !!u)
-      .slice(0, 30);
+      .flatMap((r) => {
+        const paths = r.image_paths?.length ? r.image_paths : r.image_path ? [r.image_path] : [];
+        const date = new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz });
+        return paths.map((path, index) => ({
+          postId: r.id,
+          index,
+          url: publicImageUrl(path) ?? "",
+          author: r.author_id === actorId ? "You" : nameOf.get(r.author_id) ?? "someone",
+          date,
+        }));
+      })
+      .filter((p) => p.url)
+      .slice(0, 60);
   }
 
   const headerData = {
@@ -187,39 +215,13 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
             </header>
 
             <div className="space-y-8">
-              <section className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-[17px] font-semibold text-neutral-900">Photos</h2>
-                    <p className="text-[13px] text-neutral-600">
-                      {photos.length > 0
-                        ? `${photos.length} from ${photoPeople} ${photoPeople === 1 ? "person" : "people"}`
-                        : "No photos yet"}
-                    </p>
-                  </div>
-                  <PostComposer eventId={id} eventDate={eventDay} variant="button" />
-                </div>
-                {photos.length > 0 ? (
-                  <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-                    {photos.map((src, i) => (
-                      <a
-                        key={`${src}-${i}`}
-                        href={src}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="h-[200px] w-[150px] shrink-0 snap-start overflow-hidden rounded-2xl bg-neutral-200"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={src} alt={`Photo ${i + 1} from ${title}`} className="h-full w-full object-cover" />
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-neutral-300 px-4 py-8 text-center text-sm text-neutral-600">
-                    Add the first photos from {title}.
-                  </div>
-                )}
-              </section>
+              <EventPhotos
+                photos={photos}
+                people={photoPeople}
+                title={title}
+                initialPinned={pinnedKeys}
+                addButton={<PostComposer eventId={id} eventDate={eventDay} variant="button" />}
+              />
 
               {feeCents > 0 && (
                 <EventFeePanel

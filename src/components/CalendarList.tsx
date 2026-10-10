@@ -32,7 +32,6 @@ import { InviteComposer } from "./InviteComposer";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { clientTimeZone, isoFromLocal, localFromIso, formatWhen, labelHasTime } from "@/lib/localDateTime";
 import { isRedundantNote } from "@/lib/noteText";
-import { GuestFaces } from "./GuestFaces";
 import { EmptyState } from "./LibraryWall";
 
 type Variant = "upcoming" | "past";
@@ -332,11 +331,6 @@ function EventRow({
               </p>
             )}
             {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
-            {eventId && !isPending && (
-              <div className="mt-1.5">
-                <GuestFaces eventId={eventId} />
-              </div>
-            )}
           </div>
     </>
   );
@@ -554,11 +548,6 @@ function EventPopup({
                   <MapPin className="h-4 w-4 shrink-0" />
                   <span className="truncate">{location}</span>
                 </a>
-              )}
-              {eventId && (
-                <div className="mt-3">
-                  <GuestFaces eventId={eventId} />
-                </div>
               )}
 
               <div className="mt-3 space-y-1.5 text-[14px] leading-relaxed text-neutral-600">

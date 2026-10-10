@@ -96,6 +96,10 @@ export interface NewsScoutCard extends CardBase {
   actionUrl?: string;
   /** 1-3 word label of what it is ("Stargazing", "Farmers market", …). */
   topic?: string;
+  /** "Neighborhood, City" from the source. */
+  place?: string;
+  /** "Free" / "$15" / "~$15–25 per person", only when the source states it. */
+  cost?: string;
 }
 
 export interface TimeWindowCard extends CardBase {
@@ -119,6 +123,10 @@ export interface TimeWindowCard extends CardBase {
   windowLabel?: string;
   /** 1-3 word label of what it is ("Stargazing", "Live music", …). */
   topic?: string;
+  /** "Neighborhood, City" from the source. */
+  place?: string;
+  /** "Free" / "$15" / "~$15–25 per person", only when the source states it. */
+  cost?: string;
 }
 
 export interface CalendarRadarCard extends CardBase {

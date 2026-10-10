@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateDeck } from "./generateDeck";
 import { drawFromPool, upsertPoolEvents, topicFamily, type PoolEvent } from "./pool";
 import { SCOUT_CATEGORY_KEYS, type GeneratedCard } from "./anthropic";
-import { startOfTodayISO } from "@/lib/time";
+import { startOfTodayISO, APP_TZ } from "@/lib/time";
+import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
+import { isPastCard } from "@/lib/calendarSort";
 import type { CategoryKey } from "@/lib/types";
 
 /** The scout's own card types — the only ones the fill engine ever prunes or
@@ -61,6 +63,8 @@ function poolEventToCardRow(userId: string, e: PoolEvent) {
       category: safeCategory(e.category),
       summary: e.summary,
       topic: e.topic,
+      ...(e.place ? { place: e.place } : {}),
+      ...(e.cost ? { cost: e.cost } : {}),
       actionLabel: e.action_label,
       actionUrl: e.action_url,
       ...(isWindow
@@ -117,7 +121,7 @@ export async function fillUserDeck(
   const [{ data: survivors }, { data: held }] = await Promise.all([
     admin
       .from("cards")
-      .select("id, content")
+      .select(CARD_SELECT)
       .eq("user_id", userId)
       .eq("status", "pending")
       .in("type", PUBLIC_TYPES),
@@ -127,10 +131,20 @@ export async function fillUserDeck(
       .eq("user_id", userId)
       .or("dedup_key.not.is.null,topic_key.not.is.null"),
   ]);
-  const kept = survivors?.length ?? 0;
+  // A card whose day has passed is hidden on Today even before its prune date —
+  // drop it here too, so it doesn't hold a slot and leave the deck at 4.
+  const stale = (survivors ?? []).filter((r) => {
+    const c = rowToCard(r as CardRow);
+    return !c || isPastCard(c, nowMs, APP_TZ);
+  });
+  if (stale.length > 0) {
+    await admin.from("cards").delete().in("id", stale.map((r) => (r as { id: string }).id));
+  }
+  const live = (survivors ?? []).filter((r) => !stale.includes(r));
+  const kept = live.length;
   // Kinds of thing already on the deck — never add a second of the same kind.
   const families = new Set<string>();
-  for (const r of survivors ?? []) {
+  for (const r of live) {
     const fam = topicFamily((r as { content?: { topic?: string | null } }).content?.topic);
     if (fam) families.add(fam);
   }
@@ -171,12 +185,22 @@ export async function fillUserDeck(
     }
   }
 
-  if (picked.length === 0) return { filled: 0, kept, pruned, cap };
+  // Still short? Relax the one-per-kind rule rather than ship a thin deck
+  // (still never repeats a card or an exact topic the user has seen).
+  if (picked.length < need) {
+    for (const e of await drawFromPool(admin, locations, heldKeys, startISO, need - picked.length, heldTopics, new Set())) {
+      picked.push(e);
+      heldKeys.add(e.dedup_key);
+      if (e.topic_key) heldTopics.add(e.topic_key);
+    }
+  }
+
+  if (picked.length === 0) return { filled: 0, kept, pruned: pruned + stale.length, cap };
 
   const rows = picked.slice(0, need).map((e) => poolEventToCardRow(userId, e));
   const { error } = await admin.from("cards").insert(rows);
   if (error) return { filled: 0, kept, pruned, cap, error: error.message };
-  return { filled: rows.length, kept, pruned, cap };
+  return { filled: rows.length, kept, pruned: pruned + stale.length, cap };
 }
 
 /**

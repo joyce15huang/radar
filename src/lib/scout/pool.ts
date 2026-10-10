@@ -12,6 +12,10 @@ export interface PoolEvent {
   category: string;
   title: string;
   summary: string;
+  /** Short "Neighborhood, City" (0038); may be absent on older rows. */
+  place?: string | null;
+  /** "Free" / "$15" / "~$15–25 per person" (0038); may be absent on older rows. */
+  cost?: string | null;
   topic: string | null;
   action_label: string;
   action_url: string | null;
@@ -57,6 +61,8 @@ export function poolRowFromCard(
     category: card.category,
     title: card.title,
     summary: card.summary,
+    place: card.place?.trim() || null,
+    cost: card.cost?.trim() || null,
     topic: card.topic ?? null,
     action_label: card.action_label,
     action_url: card.action_url,
@@ -88,9 +94,32 @@ export async function upsertPoolEvents(
     byKey.set(row.dedup_key, row);
   }
   const nowISO = new Date(nowMs).toISOString();
-  await admin.from("sourced_events").upsert(
-    [...byKey.values()].map((r) => ({ ...r, last_seen: nowISO })),
-    { onConflict: "dedup_key", ignoreDuplicates: true },
+  const rows = [...byKey.values()].map((r) => ({ ...r, last_seen: nowISO }));
+  const { error } = await admin
+    .from("sourced_events")
+    .upsert(rows, { onConflict: "dedup_key", ignoreDuplicates: true });
+  // Before the 0038 migration the place/cost columns don't exist — keep
+  // sourcing working by retrying without them.
+  if (error && /place|cost/.test(error.message)) {
+    await admin.from("sourced_events").upsert(
+      rows.map(({ place: _p, cost: _c, ...rest }) => rest),
+      { onConflict: "dedup_key", ignoreDuplicates: true },
+    );
+    return;
+  }
+  // Events already in the pool (sourced before place/cost existed) keep their
+  // row on conflict — backfill just those two fields when we now know them.
+  await Promise.all(
+    rows
+      .filter((r) => r.place || r.cost)
+      .map((r) =>
+        admin
+          .from("sourced_events")
+          .update({ place: r.place, cost: r.cost })
+          .eq("dedup_key", r.dedup_key)
+          .is("place", null)
+          .is("cost", null),
+      ),
   );
 }
 

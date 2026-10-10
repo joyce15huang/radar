@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, Check, MapPin, Link2, CalendarDays, CalendarPlus } from "lucide-react";
+import { ArrowUpRight, Check, MapPin, Link2, CalendarDays, CalendarPlus, Ticket } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
@@ -24,6 +24,8 @@ type Invite = Extract<DigestCardData, { type: "social_invite" }>;
 interface DigestCardProps {
   card: DigestCardData;
   onResolve: (id: string, status: ResolveStatus) => void;
+  /** Stretch to the available height (Today deck): the hero absorbs the extra space. */
+  fill?: boolean;
   /** The user's accepted calendar blocks, for the conflict check. */
   busy?: BusyInterval[];
 }
@@ -38,11 +40,15 @@ const stopDrag = (e: React.PointerEvent) => e.stopPropagation();
  * friend's post), a date tile + title + one-line hook, and quiet icon actions.
  * Skip / save / RSVP live on the deck (swipe + the buttons under the card).
  */
-export function DigestCard({ card, onResolve, busy = [] }: DigestCardProps) {
+export function DigestCard({ card, onResolve, busy = [], fill = false }: DigestCardProps) {
   return (
-    <article className="overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_rgba(24,24,27,0.08)]">
+    <article
+      className={`overflow-hidden rounded-[28px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_32px_rgba(24,24,27,0.08)] ${
+        fill ? "flex flex-1 flex-col" : ""
+      }`}
+    >
       <SenderStrip card={card} />
-      <Hero card={card} />
+      <Hero card={card} fill={fill} />
       <div className="p-5">
         <MainRow card={card} />
         <Extras card={card} busy={busy} />
@@ -90,10 +96,10 @@ function SenderStrip({ card }: { card: DigestCardData }) {
 
 /* ---------------------------------- hero ---------------------------------- */
 
-function Hero({ card }: { card: DigestCardData }) {
+function Hero({ card, fill = false }: { card: DigestCardData; fill?: boolean }) {
   if (card.type === "social_post" && card.imageUrls.length > 0) {
     return (
-      <div className="px-3 pt-3" onPointerDown={stopDrag}>
+      <div className={`px-3 pt-3 ${fill ? "flex flex-1 items-center" : ""}`} onPointerDown={stopDrag}>
         <PhotoGallery images={card.imageUrls} alt={card.caption ?? "Post photo"} />
       </div>
     );
@@ -102,11 +108,11 @@ function Hero({ card }: { card: DigestCardData }) {
   const Icon = v.icon;
   const pill = (card.type === "news_scout" || card.type === "time_window") && card.topic ? card.topic : v.label;
   return (
-    <div className={`relative flex h-40 items-center justify-center ${v.bg}`}>
+    <div className={`relative flex items-center justify-center ${fill ? "min-h-[140px] flex-1" : "h-40"} ${v.bg}`}>
       <span className={`absolute left-4 top-4 rounded-full bg-white/90 px-2.5 py-1 text-xs font-semibold ${v.pill}`}>
         {pill}
       </span>
-      <Icon className={`h-16 w-16 ${v.fg}`} strokeWidth={1.4} aria-hidden />
+      <Icon className={`${fill ? "h-20 w-20" : "h-16 w-16"} ${v.fg}`} strokeWidth={1.3} aria-hidden />
     </div>
   );
 }
@@ -203,6 +209,25 @@ function Hook({ card }: { card: DigestCardData }) {
   switch (card.type) {
     case "news_scout":
     case "time_window":
+      // Where + what it costs beats a summary sentence; fall back to the hook.
+      if (card.place || card.cost) {
+        return (
+          <ul className="space-y-1.5 pt-0.5">
+            {card.place && (
+              <li className="flex items-center gap-2 text-[14px] font-semibold text-neutral-900">
+                <MapPin className="h-4 w-4 shrink-0 text-neutral-500" strokeWidth={2} />
+                <span className="truncate">{card.place}</span>
+              </li>
+            )}
+            {card.cost && (
+              <li className="flex items-center gap-2 text-[14px] font-semibold text-neutral-900">
+                <Ticket className="h-4 w-4 shrink-0 text-neutral-500" strokeWidth={2} />
+                <span className="truncate">{card.cost}</span>
+              </li>
+            )}
+          </ul>
+        );
+      }
       return <RichText text={card.summary} className={`line-clamp-2 ${muted}`} />;
     case "social_invite":
       return card.note ? <RichText text={card.note} className={`line-clamp-2 ${muted}`} /> : null;

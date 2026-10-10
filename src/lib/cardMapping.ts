@@ -36,6 +36,8 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         actionLabel: c.actionLabel ?? "Read more",
         actionUrl: c.actionUrl ?? undefined,
         topic: c.topic ?? undefined,
+        place: c.place ?? undefined,
+        cost: c.cost ?? undefined,
       };
 
     case "time_window":
@@ -51,6 +53,8 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         opensAt: c.opensAt ?? undefined,
         windowLabel: c.windowLabel ?? undefined,
         topic: c.topic ?? undefined,
+        place: c.place ?? undefined,
+        cost: c.cost ?? undefined,
       };
 
     case "social_ping":

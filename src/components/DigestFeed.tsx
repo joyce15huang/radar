@@ -223,7 +223,7 @@ export function DigestFeed({ initialCards, dateLabel, persist = false, busy = []
   const firstOpen = cards.findIndex((c) => !outcomes[c.id]);
 
   return (
-    <div className="w-full">
+    <div className="flex w-full flex-1 flex-col">
       <DeckHeader
         dateLabel={dateLabel}
         done={total - openCount}
@@ -233,7 +233,8 @@ export function DigestFeed({ initialCards, dateLabel, persist = false, busy = []
         onJump={jump}
       />
 
-      <div className="relative">
+      {/* The card stretches to fill the screen; the buttons sit just above the tab bar. */}
+      <div className="relative flex max-h-[760px] min-h-[420px] flex-1 flex-col">
         <AnimatePresence custom={dir} initial={false} mode="wait">
           {card ? (
             <SlideCard
@@ -354,7 +355,7 @@ function SlideCard({
         if (info.offset.x < -90 || info.velocity.x < -600) onFlip(1);
         else if ((info.offset.x > 90 || info.velocity.x > 600) && canBack) onFlip(-1);
       }}
-      className="relative cursor-grab touch-pan-y select-none active:cursor-grabbing"
+      className="relative flex flex-1 cursor-grab touch-pan-y select-none flex-col active:cursor-grabbing"
     >
       {done && (
         <span
@@ -366,8 +367,8 @@ function SlideCard({
           {outcomeLabel(card, outcome!)}
         </span>
       )}
-      <div className={done && !positive ? "opacity-60" : ""}>
-        <DigestCard card={card} busy={busy} onResolve={onResolve} />
+      <div className={`flex flex-1 flex-col ${done && !positive ? "opacity-60" : ""}`}>
+        <DigestCard card={card} busy={busy} onResolve={onResolve} fill />
       </div>
     </motion.div>
   );
@@ -415,7 +416,7 @@ function DeckControls({
 
   if (outcome) {
     return (
-      <div className="mt-6 flex flex-col items-center gap-3">
+      <div className="mt-4 flex flex-col items-center gap-2.5">
         <div className="flex items-center gap-2">
           {outcome !== "calendar" && (
             <button

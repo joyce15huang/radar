@@ -179,6 +179,8 @@ export async function createPost(input: {
   eventId?: string | null;
   /** The date the moment happened (YYYY-MM-DD); defaults to today client-side. */
   takenOn?: string | null;
+  /** false = event-album only (added from an event page); not on the profile grid. */
+  onGrid?: boolean;
 }): Promise<CreatePostResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -190,14 +192,17 @@ export async function createPost(input: {
   const admin = createAdminClient();
   const eventId = input.eventId || null;
 
-  const { error: postErr } = await admin.from("posts").insert({
+  const row = {
     author_id: actorId,
     image_path: paths[0],
     image_paths: paths,
     caption: input.caption?.trim() || null,
     event_id: eventId,
     taken_on: input.takenOn || null,
-  });
+  };
+  let { error: postErr } = await admin.from("posts").insert({ ...row, on_grid: input.onGrid !== false });
+  // Before the 0039 migration there's no on_grid column — post without it.
+  if (postErr && /on_grid/.test(postErr.message)) ({ error: postErr } = await admin.from("posts").insert(row));
   if (postErr) return { ok: false, error: postErr.message };
 
   let sharedWith = 0;

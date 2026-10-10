@@ -42,6 +42,10 @@ export interface GeneratedCard {
   category: CategoryKey;
   title: string;
   summary: string;
+  /** Neighborhood + city, e.g. "Mission Bay, San Francisco". From the source only. */
+  place?: string | null;
+  /** "Free", "$15", "~$15–25 per person". Only when the source states a price. */
+  cost?: string | null;
   action_label: string;
   action_url: string | null;
   /**
@@ -172,6 +176,8 @@ Rules:
 - Categories: choose from local, culture, tech, finance, world, health. NEVER use "schedule" or "admin" — those belong to the user's own calendar and life-admin, not scouted events. Local happenings, sports/teams, food, and concerts are "local" (or "culture"); markets/tickers are "finance"; space/science is "local" or "world".
 - summary is a ONE-SENTENCE HOOK, 15 words max: the single detail that makes it worth doing (when/where/why). No background, no filler, no second sentence. Calm and factual — no hype, no clickbait.
 - BREADTH: every card must be a DIFFERENT kind of thing. Never more than ONE card per topic (one meteor-shower card total, even if there are two showers or five outlets covering it). Spread the deck across food, music/arts, outdoors, markets/community, sports and learning when the context allows. Fewer, varied cards beat more, repetitive ones.
+- place: the neighborhood and city, short ("Mission Bay, San Francisco", "Downtown Oakland", "Yosemite Valley"). Use the venue's area, not a street address. Null if the source doesn't say where.
+- cost: what it costs to go, short: "Free", "$15", "$20–35", "~$15–25 per person" (use "~" for a range or estimate, add "per person" when it's clearly per head). ONLY from the source — if no price is stated, set null. Never guess.
 - topic: use the SAME label for the same kind of thing every time (always "Meteor shower", never "Stargazing" for one and "Meteor shower" for another).
 - Titles are punchy and specific, under ~60 characters.
 - action_label: "Details" by default; use a specific verb only when it's clearly the action ("Get tickets", "Enter lottery", "Register").`,
@@ -199,6 +205,14 @@ Rules:
                   summary: {
                     type: "string",
                     description: "ONE-sentence hook, 15 words max. The key detail that makes it worth doing. No filler.",
+                  },
+                  place: {
+                    type: ["string", "null"],
+                    description: "Neighborhood + city, short (e.g. 'Mission Bay, San Francisco'). Area, not street address. Null if unknown.",
+                  },
+                  cost: {
+                    type: ["string", "null"],
+                    description: "Price to attend, short: 'Free', '$15', '$20–35', '~$15–25 per person'. Only if the source states it; else null.",
                   },
                   topic: {
                     type: ["string", "null"],

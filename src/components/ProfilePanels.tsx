@@ -19,6 +19,7 @@ export function ProfilePanels({
   friends = [],
   requests = [],
   initialTab = "posts",
+  ownerName,
 }: {
   posts: ProfilePost[];
   events: HostedEventItem[];
@@ -26,6 +27,7 @@ export function ProfilePanels({
   friends?: FriendEntry[];
   requests?: FriendRequestEntry[];
   initialTab?: Tab;
+  ownerName?: string;
 }) {
   const [tab, setTab] = useState<Tab>(isOwner ? initialTab : "posts");
 
@@ -60,7 +62,7 @@ export function ProfilePanels({
 
       <div className="pt-4">
         {tab === "posts" ? (
-          <ProfileWall posts={posts} isOwner={isOwner} />
+          <ProfileWall posts={posts} isOwner={isOwner} ownerName={ownerName} />
         ) : tab === "events" ? (
           events.length === 0 ? (
             <EmptyState

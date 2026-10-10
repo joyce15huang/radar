@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ZoomIn,
+  Camera,
 } from "lucide-react";
 import { createPost, listMyEventsInRange, type RangeEvent } from "@/app/create-card-actions";
 import { createClient } from "@/lib/supabase/client";
@@ -193,6 +194,8 @@ export function PostComposer({
         imagePaths: paths,
         eventId: selectedEventId,
         takenOn,
+        // Added from an event page → lives in that event's album, not your grid.
+        onGrid: variant !== "button",
       });
       if (!res.ok) throw new Error(res.error ?? "Couldn't publish the post.");
       setDoneWith(res.sharedWith ?? 0);
@@ -243,7 +246,7 @@ export function PostComposer({
           onClick={() => canClose && setOpen(false)}
         >
           <div
-            className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-xl dark:bg-neutral-900 sm:rounded-3xl"
+            className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl dark:bg-neutral-900 sm:rounded-3xl sm:pb-0"
             onClick={(e) => e.stopPropagation()}
           >
             {doneWith !== null ? (
@@ -367,8 +370,41 @@ function SelectStep({
   count: number;
 }) {
   const [dragging, setDragging] = useState(false);
+  const cameraRef = useRef<HTMLInputElement>(null);
   return (
     <div className="space-y-3">
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={(e) => {
+          const picked = Array.from(e.target.files ?? []);
+          e.currentTarget.value = "";
+          onFiles(picked);
+        }}
+      />
+      {/* Phones: two big, thumb-sized choices (drag-and-drop zone is desktop-only). */}
+      <div className="grid grid-cols-2 gap-3 md:hidden">
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="flex h-32 flex-col items-center justify-center gap-2.5 rounded-2xl bg-neutral-900 text-white active:scale-[0.98]"
+        >
+          <ImagePlus className="h-7 w-7" strokeWidth={1.8} />
+          <span className="text-[15px] font-semibold">Photo library</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => cameraRef.current?.click()}
+          className="flex h-32 flex-col items-center justify-center gap-2.5 rounded-2xl bg-neutral-100 text-neutral-900 active:scale-[0.98]"
+        >
+          <Camera className="h-7 w-7" strokeWidth={1.8} />
+          <span className="text-[15px] font-semibold">Take a photo</span>
+        </button>
+        <p className="col-span-2 text-center text-[13px] text-neutral-500">Up to {MAX_PHOTOS} photos · they become one swipeable post</p>
+      </div>
       <input
         ref={fileRef}
         type="file"
@@ -393,7 +429,7 @@ function SelectStep({
           setDragging(false);
           onFiles(Array.from(e.dataTransfer.files ?? []));
         }}
-        className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${
+        className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-12 text-center transition max-md:hidden ${
           dragging
             ? "border-sky-400 bg-sky-50 dark:border-sky-500 dark:bg-sky-500/10"
             : "border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-600"
