@@ -1,257 +1,193 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Check, Plus, Loader2, Users, Crown, MapPin, CalendarClock, Link2, ArrowUpRight } from "lucide-react";
-import { updateHostEvent, toggleReinvite } from "@/app/event-actions";
-import { setEventModules } from "@/app/module-actions";
+import {
+  Pencil,
+  Check,
+  Loader2,
+  Crown,
+  MapPin,
+  CalendarClock,
+  Link2,
+  ArrowUpRight,
+  AlignLeft,
+  ChevronRight,
+  DollarSign,
+} from "lucide-react";
+import { updateHostEvent } from "@/app/event-actions";
 import { FeeRow } from "./EventFeePanel";
-import { DateTimeField, type DTValue } from "./DateTimeField";
-import { clientTimeZone, isoFromLocal, localFromIso, formatWhen } from "@/lib/localDateTime";
+import { WhenPicker, type WhenValue } from "./WhenPicker";
+import { clientTimeZone, isoFromLocal, localFromIso, formatWhenRange } from "@/lib/localDateTime";
 
 export interface EventHeaderData {
   eventId: string;
   isHost: boolean;
   title: string;
-  /** Display-only "when" text. */
+  /** Display "when" text. */
   when: string;
   location: string;
   hostName: string;
   /** Display note (note || summary). */
   displayNote: string;
   sourceUrl: string | null;
-  /** Edit-form fields. */
   startsAt: string | null;
+  /** End time from the viewer's card, when the plan has one. */
+  endsAt: string | null;
   hasTime: boolean;
   note: string;
   feeCents: number;
   paymentLink: string;
   venmoId: string;
   zelleId: string;
-  allowReinvite: boolean;
   /** The viewer's own invite card id + whether they've marked the fee paid. */
   cardId?: string;
   feePaid: boolean;
-  /** Enabled optional sections (carpool / expenses / tasks). */
-  modules: string[];
 }
 
-const SECTION_OPTIONS: { key: string; label: string }[] = [
-  { key: "carpool", label: "Carpool" },
-  { key: "expenses", label: "Expenses" },
-  { key: "tasks", label: "Tasks" },
-];
+/** Fired by the "Fee" tile under "Add to this plan" to open the fee editor here. */
+export const ADD_FEE_EVENT = "plan:add-fee";
 
-const field =
-  "w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-neutral-600 dark:focus:ring-neutral-700";
-const pill =
-  "inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition disabled:opacity-60";
-const neutralPill = `${pill} border border-neutral-200 text-neutral-700 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800`;
-const darkPill = `${pill} bg-neutral-900 text-white hover:bg-neutral-700 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200`;
+type Field = "title" | "when" | "location" | "note" | "fee";
 
-/** The event page's Overview header — title, when/where/host, notes — with the
- *  host's Edit control on the title row and the edit form rendered in place. */
+interface Values {
+  title: string;
+  when: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  hasTime: boolean;
+  location: string;
+  note: string;
+  feeCents: number;
+  venmoId: string;
+  zelleId: string;
+  paymentLink: string;
+}
+
+const valuesOf = (d: EventHeaderData): Values => ({
+  title: d.title,
+  when: d.when,
+  startsAt: d.startsAt,
+  endsAt: d.endsAt,
+  hasTime: d.hasTime,
+  location: d.location,
+  note: d.note,
+  feeCents: d.feeCents,
+  venmoId: d.venmoId,
+  zelleId: d.zelleId,
+  paymentLink: d.paymentLink,
+});
+
+const rowCls = "flex w-full items-center gap-3.5 px-4 py-3.5 text-left";
+const smallBtn = "inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-semibold transition disabled:opacity-60";
+
+/**
+ * The plan page's header — title, when, where, fee, note. For the host every
+ * piece edits right where it sits (tap it); nothing opens a separate form.
+ */
 export function EventHeader({ data }: { data: EventHeaderData }) {
   const router = useRouter();
   const tz = clientTimeZone();
-
-  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState<Values>(() => valuesOf(data));
+  const [editing, setEditing] = useState<Field | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const feeRef = useRef<HTMLDivElement>(null);
+  const host = data.isHost;
 
-  const [title, setTitle] = useState(data.title);
-  const [dt, setDt] = useState<DTValue>(() => {
-    const local = data.startsAt ? localFromIso(data.startsAt, tz) : null;
-    return local ? { date: local.date, time: data.hasTime ? local.time : null } : { date: "", time: null };
-  });
-  const [location, setLocation] = useState(data.location);
-  const [note, setNote] = useState(data.note);
-  const [feeStr, setFeeStr] = useState(data.feeCents ? String(data.feeCents / 100) : "");
-  const [venmo, setVenmo] = useState(data.venmoId);
-  const [zelle, setZelle] = useState(data.zelleId);
-  const [allowReinvite, setAllowReinvite] = useState(data.allowReinvite);
-  const [modules, setModules] = useState<Set<string>>(() => new Set(data.modules));
+  // Pick up fresh server data after a refresh.
+  const dataKey = JSON.stringify(valuesOf(data));
+  useEffect(() => {
+    setV(valuesOf(data));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataKey]);
 
-  function toggleModule(key: string) {
-    setModules((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  // The "Fee" tile lives further down the page.
+  useEffect(() => {
+    if (!host) return;
+    const open = () => {
+      setEditing("fee");
+      setTimeout(() => feeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    };
+    window.addEventListener(ADD_FEE_EVENT, open);
+    return () => window.removeEventListener(ADD_FEE_EVENT, open);
+  }, [host]);
 
-  async function saveEdit() {
-    if (!title.trim()) {
-      setError("Give it a title.");
-      return;
-    }
-    const startsAt = isoFromLocal(dt.date, dt.time, tz);
-    if (!startsAt) {
-      setError("Pick a date.");
-      return;
-    }
-    const hasTime = dt.time !== null;
-    const parsedFee = parseFloat(feeStr);
-    const feeCents =
-      feeStr.trim() && Number.isFinite(parsedFee) && parsedFee > 0 ? Math.round(parsedFee * 100) : null;
-
+  async function save(patch: Partial<Values>) {
+    const next = { ...v, ...patch };
     setBusy(true);
     setError(null);
     const res = await updateHostEvent({
       eventId: data.eventId,
-      title: title.trim(),
-      whenText: formatWhen(startsAt, tz, hasTime),
-      startsAt,
-      hasTime,
-      location: location.trim(),
-      note: note.trim(),
-      feeCents,
-      paymentLink: data.paymentLink,
-      venmoId: venmo.trim(),
-      zelleId: zelle.trim(),
+      title: next.title,
+      whenText: next.when,
+      startsAt: next.startsAt ?? undefined,
+      hasTime: next.hasTime,
+      endsAt: next.endsAt,
+      location: next.location,
+      note: next.note,
+      feeCents: next.feeCents > 0 ? next.feeCents : null,
+      paymentLink: next.paymentLink,
+      venmoId: next.venmoId,
+      zelleId: next.zelleId,
     });
-    if (res.ok && allowReinvite !== data.allowReinvite) {
-      await toggleReinvite({ eventId: data.eventId, allow: allowReinvite });
-    }
-    if (res.ok) {
-      const nextModules = [...modules];
-      const changed =
-        nextModules.length !== data.modules.length ||
-        nextModules.some((m) => !data.modules.includes(m));
-      if (changed) await setEventModules(data.eventId, nextModules);
-    }
     setBusy(false);
     if (!res.ok) {
       setError(res.error ?? "Couldn't save.");
-      return;
+      return false;
     }
-    setEditing(false);
+    setV({ ...next, when: res.when ?? next.when });
+    setEditing(null);
     router.refresh();
+    return true;
   }
 
-  if (editing) {
-    return (
-      <div className="mb-5 space-y-2.5 rounded-2xl border border-neutral-200/80 bg-white p-4 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className={field} />
-        </label>
-        <div>
-          <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">When</span>
-          <DateTimeField value={dt} onChange={setDt} />
-        </div>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Location</span>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="optional" className={field} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Details</span>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="optional"
-            rows={4}
-            className={`${field} max-h-40 resize-y overflow-y-auto whitespace-pre-wrap break-words`}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Fee to join ($)</span>
-          <input value={feeStr} onChange={(e) => setFeeStr(e.target.value)} inputMode="decimal" placeholder="blank = free" className={field} />
-        </label>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Venmo</span>
-            <input value={venmo} onChange={(e) => setVenmo(e.target.value)} placeholder="@handle" className={field} />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Zelle</span>
-            <input value={zelle} onChange={(e) => setZelle(e.target.value)} placeholder="email or phone" className={field} />
-          </label>
-        </div>
-        <label className="flex items-center gap-2 pt-0.5 text-sm text-neutral-600 dark:text-neutral-300">
-          <input
-            type="checkbox"
-            checked={allowReinvite}
-            onChange={(e) => setAllowReinvite(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-400 dark:border-neutral-600"
-          />
-          <Users className="h-3.5 w-3.5 text-neutral-400" />
-          Let guests invite others
-        </label>
-
-        <div className="pt-1">
-          <span className="mb-1.5 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-            Sections <span className="font-normal text-neutral-400 dark:text-neutral-500">(tap to show on the event)</span>
-          </span>
-          <div className="flex flex-wrap gap-1.5">
-            {SECTION_OPTIONS.map((s) => {
-              const on = modules.has(s.key);
-              return (
-                <button
-                  key={s.key}
-                  type="button"
-                  onClick={() => toggleModule(s.key)}
-                  aria-pressed={on}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                    on
-                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20"
-                      : "border border-neutral-200 text-neutral-500 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-                  }`}
-                >
-                  {on ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : <Plus className="h-3.5 w-3.5" />}
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {error && <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
-        <div className="flex items-center gap-2 pt-1">
-          <button type="button" onClick={() => setEditing(false)} disabled={busy} className={neutralPill}>
-            Cancel
-          </button>
-          <button type="button" onClick={saveEdit} disabled={busy} className={darkPill}>
-            {busy ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Saving…
-              </>
-            ) : (
-              <>
-                <Check className="h-4 w-4" /> Save
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const tile = headerTile(data.startsAt, data.hasTime, tz);
-  const rel = relativeDay(data.startsAt, tz);
-  const mapsHref = data.location
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.location)}`
+  const tile = headerTile(v.startsAt, v.hasTime, tz);
+  const rel = relativeDay(v.startsAt, tz);
+  const mapsHref = v.location
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.location)}`
     : null;
+  const noteText = host ? v.note : data.displayNote;
+  const showCard = host || v.when || v.location || v.feeCents > 0 || noteText;
+
+  const dateBox = tile ? (
+    <div className="flex w-12 shrink-0 flex-col items-center rounded-xl bg-neutral-100 py-1.5">
+      <span className="text-[10px] font-semibold tracking-wider text-neutral-600">{tile.top}</span>
+      <span className="text-xl font-bold leading-tight text-neutral-900">{tile.day}</span>
+    </div>
+  ) : (
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-100">
+      <CalendarClock className="h-5 w-5 text-neutral-600" />
+    </span>
+  );
+  const iconBox = (icon: React.ReactNode, bg: string) => (
+    <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${bg}`}>{icon}</span>
+  );
+  const chevron = <ChevronRight className="h-4 w-4 shrink-0 text-neutral-300" strokeWidth={2.4} />;
+  const ghost = (text: string) => <span className="text-[15px] font-medium text-neutral-400">{text}</span>;
 
   return (
     <header className="mb-6 space-y-5">
       <div className="space-y-2.5">
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">{data.title}</h1>
-          {data.isHost && (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="inline-flex min-h-[40px] shrink-0 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
-            >
-              <Pencil className="h-4 w-4" /> Edit
-            </button>
-          )}
-        </div>
+        {host && editing === "title" ? (
+          <InlineText
+            value={v.title}
+            busy={busy}
+            className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900"
+            onCancel={() => setEditing(null)}
+            onCommit={(t) => (t && t !== v.title ? save({ title: t }) : setEditing(null))}
+          />
+        ) : host ? (
+          <button type="button" onClick={() => setEditing("title")} className="group flex items-start gap-2.5 text-left">
+            <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">{v.title}</h1>
+            <Pencil className="mt-3 h-4 w-4 shrink-0 text-neutral-300 transition group-hover:text-neutral-500" />
+          </button>
+        ) : (
+          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">{v.title}</h1>
+        )}
         <p className="flex items-center gap-2 text-sm text-neutral-600">
           <Crown className="h-4 w-4 text-fuchsia-600" />
-          {data.isHost ? (
+          {host ? (
             "You're hosting"
           ) : (
             <span>
@@ -261,32 +197,69 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
         </p>
       </div>
 
-      {(data.when || data.location || data.feeCents > 0) && (
-        <div className="divide-y divide-neutral-100 rounded-[20px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
-          {data.when && (
-            <div className="flex items-center gap-3.5 px-4 py-3.5">
-              {tile ? (
-                <div className="flex w-12 shrink-0 flex-col items-center rounded-xl bg-neutral-100 py-1.5">
-                  <span className="text-[10px] font-semibold tracking-wider text-neutral-600">{tile.top}</span>
-                  <span className="text-xl font-bold leading-tight text-neutral-900">{tile.day}</span>
-                </div>
-              ) : (
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-neutral-100">
-                  <CalendarClock className="h-5 w-5 text-neutral-600" />
-                </span>
-              )}
+      {error && <p className="text-sm font-medium text-rose-600">{error}</p>}
+
+      {showCard && (
+        <div className="divide-y divide-neutral-100 rounded-[20px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)] [&>*:first-child]:rounded-t-[20px] [&>*:last-child]:rounded-b-[20px]">
+          {/* When */}
+          {host && editing === "when" ? (
+            <WhenEditor
+              v={v}
+              tz={tz}
+              busy={busy}
+              onCancel={() => setEditing(null)}
+              onSave={(p) => save(p)}
+            />
+          ) : host ? (
+            <button type="button" onClick={() => setEditing("when")} className={`${rowCls} transition hover:bg-neutral-50`}>
+              {dateBox}
               <div className="min-w-0 flex-1">
-                <p className="text-[15px] font-semibold text-neutral-900">{data.when}</p>
-                {rel && <p className="text-[13px] text-neutral-600">{rel}</p>}
+                {v.when ? (
+                  <>
+                    <p className="text-[15px] font-semibold text-neutral-900">{v.when}</p>
+                    {rel && <p className="text-[13px] text-neutral-600">{rel}</p>}
+                  </>
+                ) : (
+                  ghost("Add a time")
+                )}
               </div>
-            </div>
+              {chevron}
+            </button>
+          ) : (
+            v.when && (
+              <div className={rowCls}>
+                {dateBox}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[15px] font-semibold text-neutral-900">{v.when}</p>
+                  {rel && <p className="text-[13px] text-neutral-600">{rel}</p>}
+                </div>
+              </div>
+            )
           )}
-          {data.location && (
+
+          {/* Where */}
+          {host && editing === "location" ? (
+            <div className={rowCls}>
+              {iconBox(<MapPin className="h-5 w-5 text-emerald-700" />, "bg-emerald-50")}
+              <InlineText
+                value={v.location}
+                placeholder="Where is it?"
+                busy={busy}
+                className="text-[15px] font-semibold text-neutral-900"
+                onCancel={() => setEditing(null)}
+                onCommit={(t) => (t !== v.location ? save({ location: t }) : setEditing(null))}
+              />
+            </div>
+          ) : (host || v.location) && (
             <div className="flex items-center gap-3.5 px-4 py-3.5">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
-                <MapPin className="h-5 w-5 text-emerald-700" />
-              </span>
-              <p className="min-w-0 flex-1 text-[15px] font-semibold text-neutral-900">{data.location}</p>
+              {iconBox(<MapPin className="h-5 w-5 text-emerald-700" />, "bg-emerald-50")}
+              {host ? (
+                <button type="button" onClick={() => setEditing("location")} className="min-w-0 flex-1 text-left">
+                  {v.location ? <span className="text-[15px] font-semibold text-neutral-900">{v.location}</span> : ghost("Add a place")}
+                </button>
+              ) : (
+                <p className="min-w-0 flex-1 text-[15px] font-semibold text-neutral-900">{v.location}</p>
+              )}
               {mapsHref && (
                 <a
                   href={mapsHref}
@@ -300,29 +273,77 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
               )}
             </div>
           )}
-          {data.feeCents > 0 && (
-            <FeeRow
-              cardId={data.cardId}
-              feeCents={data.feeCents}
-              venmoId={data.venmoId || null}
-              zelleId={data.zelleId || null}
-              paymentLink={data.paymentLink || null}
-              feePaid={data.feePaid}
-              isHost={data.isHost}
-              hostName={data.hostName}
-              note={data.title}
-            />
+
+          {/* Fee */}
+          {host && editing === "fee" ? (
+            <div ref={feeRef}>
+              <FeeEditor v={v} busy={busy} onCancel={() => setEditing(null)} onSave={(p) => save(p)} />
+            </div>
+          ) : host && v.feeCents > 0 ? (
+            <button type="button" onClick={() => setEditing("fee")} className={`${rowCls} transition hover:bg-neutral-50`}>
+              {iconBox(<span className="text-[20px] font-bold text-amber-800">$</span>, "bg-amber-100")}
+              <div className="min-w-0 flex-1">
+                <p className="text-[15px] font-semibold text-neutral-900">{money(v.feeCents)} per person</p>
+                <p className="truncate text-[13px] text-neutral-600">
+                  {v.venmoId ? `Guests pay you on Venmo @${v.venmoId}` : v.zelleId ? "Guests pay you on Zelle" : "Guests pay you directly"}
+                </p>
+              </div>
+              {chevron}
+            </button>
+          ) : (
+            !host &&
+            v.feeCents > 0 && (
+              <FeeRow
+                cardId={data.cardId}
+                feeCents={v.feeCents}
+                venmoId={v.venmoId || null}
+                zelleId={v.zelleId || null}
+                paymentLink={v.paymentLink || null}
+                feePaid={data.feePaid}
+                isHost={false}
+                hostName={data.hostName}
+                note={v.title}
+              />
+            )
           )}
-        </div>
-      )}
 
-
-      {data.displayNote && (
-        <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-          <p className="text-[13px] font-semibold text-neutral-600">
-            {data.isHost ? "Your note" : `From ${data.hostName}`}
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{data.displayNote}</p>
+          {/* Note */}
+          {host && editing === "note" ? (
+            <div className="flex items-start gap-3.5 px-4 py-3.5">
+              {iconBox(<AlignLeft className="h-5 w-5 text-neutral-600" />, "bg-neutral-100")}
+              <InlineText
+                value={v.note}
+                multiline
+                placeholder="Anything guests should know?"
+                busy={busy}
+                className="text-[15px] leading-relaxed text-neutral-800"
+                onCancel={() => setEditing(null)}
+                onCommit={(t) => (t !== v.note ? save({ note: t }) : setEditing(null))}
+              />
+            </div>
+          ) : host ? (
+            <button type="button" onClick={() => setEditing("note")} className={`${rowCls} items-start transition hover:bg-neutral-50`}>
+              {iconBox(<AlignLeft className="h-5 w-5 text-neutral-600" />, "bg-neutral-100")}
+              <div className="min-w-0 flex-1 self-center">
+                {v.note ? (
+                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{v.note}</p>
+                ) : (
+                  ghost("Add a note for guests")
+                )}
+              </div>
+              <Pencil className="h-4 w-4 shrink-0 self-center text-neutral-300" />
+            </button>
+          ) : (
+            noteText && (
+              <div className="flex items-start gap-3.5 px-4 py-3.5">
+                {iconBox(<AlignLeft className="h-5 w-5 text-neutral-600" />, "bg-neutral-100")}
+                <div className="min-w-0 flex-1 self-center">
+                  <p className="text-[12px] font-semibold text-neutral-500">From {data.hostName}</p>
+                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{noteText}</p>
+                </div>
+              </div>
+            )
+          )}
         </div>
       )}
 
@@ -338,6 +359,215 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
       )}
     </header>
   );
+}
+
+/* ------------------------------ inline editors ----------------------------- */
+
+/** A text field that saves on Enter / tap-away / ✓ and backs out on Escape. */
+function InlineText({
+  value,
+  onCommit,
+  onCancel,
+  placeholder,
+  multiline,
+  busy,
+  className,
+}: {
+  value: string;
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+  placeholder?: string;
+  multiline?: boolean;
+  busy: boolean;
+  className: string;
+}) {
+  const [text, setText] = useState(value);
+  const done = useRef(false);
+  const commit = () => {
+    if (done.current) return;
+    done.current = true;
+    onCommit(text.trim());
+  };
+  const cancel = () => {
+    done.current = true;
+    onCancel();
+  };
+  const common = {
+    value: text,
+    autoFocus: true,
+    placeholder,
+    onBlur: commit,
+    className: `min-w-0 flex-1 bg-transparent outline-none placeholder:font-normal placeholder:text-neutral-400 ${className}`,
+  };
+  return (
+    <div className="flex min-w-0 flex-1 items-start gap-2 border-b-2 border-neutral-900 pb-1">
+      {multiline ? (
+        <textarea
+          {...common}
+          rows={3}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Escape" && cancel()}
+          className={`${common.className} resize-none`}
+        />
+      ) : (
+        <input
+          {...common}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") cancel();
+          }}
+        />
+      )}
+      <button
+        type="button"
+        aria-label="Save"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={commit}
+        disabled={busy}
+        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" strokeWidth={2.6} />}
+      </button>
+    </div>
+  );
+}
+
+function EditorButtons({ busy, onCancel, onSave, left }: { busy: boolean; onCancel: () => void; onSave: () => void; left?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div>{left}</div>
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} disabled={busy} className={`${smallBtn} bg-neutral-100 text-neutral-800 hover:bg-neutral-200`}>
+          Cancel
+        </button>
+        <button type="button" onClick={onSave} disabled={busy} className={`${smallBtn} bg-neutral-900 text-white hover:bg-neutral-700`}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" strokeWidth={2.6} />}
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+const addHour = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${pad(Math.min(23, h + 1))}:${pad(m)}`;
+};
+
+/** The When row opened up into the same date / time picker as New plan. */
+function WhenEditor({
+  v,
+  tz,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  v: Values;
+  tz: string;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (p: Partial<Values>) => void;
+}) {
+  const today = localFromIso(new Date().toISOString(), tz)?.date ?? new Date().toISOString().slice(0, 10);
+  const [w, setW] = useState<WhenValue>(() => {
+    const s = v.startsAt ? localFromIso(v.startsAt, tz) : null;
+    const e = v.endsAt ? localFromIso(v.endsAt, tz) : null;
+    const start = v.hasTime && s?.time ? s.time : "18:00";
+    return {
+      date: s?.date ?? today,
+      start,
+      end: e?.time && e.date === s?.date ? e.time : addHour(start),
+      allDay: !v.hasTime,
+    };
+  });
+  const save = () => {
+    const startsAt = isoFromLocal(w.date, w.allDay ? null : w.start, tz);
+    if (!startsAt) return;
+    const endsAt = w.allDay ? null : isoFromLocal(w.date, w.end, tz);
+    onSave({ startsAt, endsAt, hasTime: !w.allDay, when: formatWhenRange(startsAt, endsAt, tz, !w.allDay) });
+  };
+  return (
+    <div className="space-y-3 bg-neutral-50/60 px-4 py-4">
+      <WhenPicker value={w} onChange={setW} today={today < w.date ? today : w.date} />
+      <EditorButtons busy={busy} onCancel={onCancel} onSave={save} />
+    </div>
+  );
+}
+
+/** The Fee row opened up: amount + how guests pay you. */
+function FeeEditor({
+  v,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  v: Values;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (p: Partial<Values>) => void;
+}) {
+  const [amount, setAmount] = useState(v.feeCents > 0 ? String(v.feeCents / 100) : "");
+  const [venmo, setVenmo] = useState(v.venmoId);
+  const [zelle, setZelle] = useState(v.zelleId);
+  const save = () => {
+    const n = parseFloat(amount);
+    const feeCents = Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+    onSave({ feeCents, venmoId: venmo.trim().replace(/^@/, ""), zelleId: zelle.trim() });
+  };
+  const input = "h-10 min-w-0 rounded-xl bg-neutral-100 px-3 text-[14px] outline-none placeholder:text-neutral-400";
+  return (
+    <div className="space-y-3 bg-neutral-50/60 px-4 py-4">
+      <div className="flex items-center gap-3.5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+          <DollarSign className="h-5 w-5 text-amber-800" />
+        </span>
+        <label className="flex flex-1 items-baseline gap-2 border-b-2 border-neutral-900 pb-1">
+          <span className="text-[24px] font-bold text-neutral-900">$</span>
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputMode="decimal"
+            placeholder="0"
+            autoFocus
+            aria-label="Amount per person"
+            className="w-20 bg-transparent text-[24px] font-bold text-neutral-900 outline-none placeholder:text-neutral-300"
+          />
+          <span className="text-sm text-neutral-500">per person</span>
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2 pl-[62px]">
+        <input value={venmo} onChange={(e) => setVenmo(e.target.value)} placeholder="Venmo @handle" aria-label="Venmo" className={input} />
+        <input value={zelle} onChange={(e) => setZelle(e.target.value)} placeholder="Zelle email/phone" aria-label="Zelle" className={input} />
+      </div>
+      <div className="pl-[62px]">
+        <EditorButtons
+          busy={busy}
+          onCancel={onCancel}
+          onSave={save}
+          left={
+            v.feeCents > 0 ? (
+              <button
+                type="button"
+                onClick={() => onSave({ feeCents: 0 })}
+                disabled={busy}
+                className="text-[13px] font-semibold text-fuchsia-700 hover:underline"
+              >
+                Remove fee
+              </button>
+            ) : null
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Integer cents → "$40" / "$16.67". */
+function money(cents: number): string {
+  const dollars = cents / 100;
+  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
 }
 
 /** Weekday (this week) or month, plus day number, for the header date tile. */

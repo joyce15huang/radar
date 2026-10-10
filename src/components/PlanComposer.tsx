@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { X, Search, Check, MapPin, Plus, AlignLeft, ArrowRight, Loader2, Car, Receipt, ListChecks } from "lucide-react";
+import { X, Search, Check, MapPin, AlignLeft, ArrowRight, Loader2, Car, Receipt, ListChecks, DollarSign, Plus, type LucideIcon } from "lucide-react";
 import { listFriendOptions } from "@/app/friends-actions";
-import { confirmSchedule } from "@/app/schedule-actions";
 import { createDirectEvent, createPoll, searchProfiles } from "@/app/poll-actions";
 import { setEventModules } from "@/app/module-actions";
 import type { FriendOption } from "@/lib/friends";
@@ -47,7 +46,6 @@ export function PlanComposer() {
   const [title, setTitle] = useState("");
   const [friends, setFriends] = useState<FriendOption[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
-  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
 
   const [mode, setMode] = useState<"set" | "vote">("set");
@@ -60,7 +58,6 @@ export function PlanComposer() {
   ]);
 
   const [location, setLocation] = useState("");
-  const [showNote, setShowNote] = useState(false);
   const [note, setNote] = useState("");
   const [showCost, setShowCost] = useState(false);
   const [cost, setCost] = useState("");
@@ -112,17 +109,19 @@ export function PlanComposer() {
   const everyone = [...friends, ...strangersPicked];
   const pickedFriends = picked.map((id) => everyone.find((f) => f.id === id)).filter(Boolean) as FriendOption[];
   const friendIds = new Set(friends.map((f) => f.id));
-  const shown = [
-    ...friends.filter((f) => !q || f.username.toLowerCase().includes(q)),
-    ...strangersPicked.filter((f) => !q || f.username.toLowerCase().includes(q)),
-    ...others.filter((o) => !strangersPicked.some((s) => s.id === o.id)),
-  ];
+  // Prefix matches only: friends first, then anyone else with that username.
+  const startsWithQ = (f: FriendOption) => !!q && f.username.toLowerCase().startsWith(q) && !picked.includes(f.id);
+  const matches = [
+    ...friends.filter(startsWithQ),
+    ...others.filter(startsWithQ),
+  ].slice(0, 6);
 
-  const toggle = (id: string) => {
-    const stranger = others.find((o) => o.id === id);
-    if (stranger && !strangersPicked.some((s) => s.id === id)) setStrangersPicked((s) => [...s, stranger]);
-    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const addPerson = (f: FriendOption) => {
+    if (!friendIds.has(f.id) && !strangersPicked.some((s) => s.id === f.id)) setStrangersPicked((s) => [...s, f]);
+    setPicked((p) => (p.includes(f.id) ? p : [...p, f.id]));
+    setQuery("");
   };
+  const removePerson = (id: string) => setPicked((p) => p.filter((x) => x !== id));
   const tone = (id: string) => AVATAR_TONES[Math.max(0, friends.findIndex((f) => f.id === id)) % AVATAR_TONES.length];
 
   const startsAt = date ? isoFromLocal(date, time, tz) : null;
@@ -133,10 +132,10 @@ export function PlanComposer() {
 
   const who =
     pickedFriends.length === 1 ? `@${pickedFriends[0].username}` : `${pickedFriends.length} friends`;
-  const cta = !group ? "Add to my calendar" : voting ? `Ask ${who} to vote` : `Send to ${who}`;
+  const cta = !group ? "Save plan" : voting ? `Ask ${who} to vote` : `Send to ${who}`;
   const summary = !group
     ? whenText
-      ? `${whenText} — just for your calendar`
+      ? `${whenText} — just you for now`
       : "Pick a day"
     : voting
       ? `They vote on ${options.length} times${feeCents ? ` · $${perPerson} each` : ""}`
@@ -178,23 +177,6 @@ export function PlanComposer() {
 
     if (!startsAt) return setError("Pick a day.");
     setSending(true);
-    if (!group) {
-      const res = await confirmSchedule([
-        {
-          title: title.trim(),
-          startsAt,
-          hasTime: time !== null,
-          endsAt: endsAt ?? undefined,
-          location: location.trim() || undefined,
-          note: note.trim() || undefined,
-        },
-      ]);
-      setSending(false);
-      if (!res.ok) return setError(res.error ?? "Couldn't add that.");
-      router.push("/calendar");
-      router.refresh();
-      return;
-    }
     const res = await createDirectEvent({
       title: title.trim(),
       location: location.trim() || undefined,
@@ -207,10 +189,20 @@ export function PlanComposer() {
       hasTime: time !== null,
       endsAt,
       recipientIds: picked,
+      allowSolo: true,
     });
-    setSending(false);
-    if (!res.ok || !res.eventId) return setError(res.error ?? "Couldn't create the event.");
+    if (!res.ok || !res.eventId) {
+      setSending(false);
+      return setError(res.error ?? "Couldn't create the plan.");
+    }
     if (extras.length > 0) await setEventModules(res.eventId, extras);
+    setSending(false);
+    if (!group) {
+      // Just you: back to the calendar — tap it there to keep filling it in.
+      router.push("/calendar");
+      router.refresh();
+      return;
+    }
     router.push(`/event/${res.eventId}`);
   }
 
@@ -236,63 +228,85 @@ export function PlanComposer() {
           />
         </label>
 
-        {/* With */}
+        {/* With — only the people you've added show; type to find more. */}
         <section className="space-y-3">
           <h2 className="text-[13px] font-semibold text-neutral-500">
             With{group ? ` · ${picked.length}` : ""}
             {!group && <span className="font-normal text-neutral-400"> — nobody yet = just you</span>}
           </h2>
-          {searching && (
-            <label className="flex h-11 items-center gap-2 rounded-xl bg-white px-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-              <Search className="h-4 w-4 text-neutral-400" />
+          {pickedFriends.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {pickedFriends.map((f) => (
+                <span
+                  key={f.id}
+                  className="inline-flex h-9 items-center gap-2 rounded-full bg-white pl-1 pr-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+                >
+                  <span className={`flex h-7 w-7 items-center justify-center rounded-full text-[13px] font-bold uppercase ${tone(f.id)}`}>
+                    {f.username.slice(0, 1)}
+                  </span>
+                  <span className="text-[14px] font-semibold text-neutral-900">@{f.username}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePerson(f.id)}
+                    aria-label={`Remove @${f.username}`}
+                    className="flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+                  >
+                    <X className="h-3.5 w-3.5" strokeWidth={2.4} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <label className="flex h-12 items-center gap-2.5 rounded-2xl bg-white px-4 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
+              <Search className="h-4 w-4 shrink-0 text-neutral-400" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search friends or @username"
-                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setQuery("");
+                  if (e.key === "Enter" && matches[0]) {
+                    e.preventDefault();
+                    addPerson(matches[0]);
+                  }
+                }}
+                placeholder={group ? "Add someone else" : "Invite someone — type a name"}
+                aria-label="Search people to invite"
+                autoComplete="off"
+                autoCapitalize="none"
                 className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
               />
             </label>
-          )}
-          <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-1 sm:-mx-6 sm:px-6">
-            {shown.map((f) => {
-              const on = picked.includes(f.id);
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => toggle(f.id)}
-                  aria-pressed={on}
-                  className="flex w-[58px] shrink-0 flex-col items-center gap-1.5"
-                >
-                  <span
-                    className={`relative flex h-[54px] w-[54px] items-center justify-center rounded-full text-[20px] font-bold uppercase ${tone(f.id)} ${
-                      on ? "ring-2 ring-neutral-900 ring-offset-[3px] ring-offset-linen" : ""
-                    }`}
-                  >
-                    {f.username.slice(0, 1)}
-                    {on && (
-                      <span className="absolute -bottom-1 -right-1 flex h-[21px] w-[21px] items-center justify-center rounded-full border-2 border-linen bg-neutral-900">
-                        <Check className="h-2.5 w-2.5 text-white" strokeWidth={3.6} />
-                      </span>
-                    )}
-                  </span>
-                  <span className={`w-full truncate text-center text-[12px] ${on ? "font-bold text-neutral-900" : "font-medium text-neutral-500"}`}>
-                    {f.username}
-                  </span>
-                  {!friendIds.has(f.id) && <span className="-mt-1 text-[10px] font-medium text-neutral-400">not a friend</span>}
-                </button>
-              );
-            })}
-            {!searching && (
-              <button type="button" onClick={() => setSearching(true)} className="flex w-[58px] shrink-0 flex-col items-center gap-1.5">
-                <span className="flex h-[54px] w-[54px] items-center justify-center rounded-full bg-neutral-200/70">
-                  <Search className="h-[19px] w-[19px] text-neutral-800" />
-                </span>
-                <span className="text-[12px] font-medium text-neutral-500">Search</span>
-              </button>
+            {q && (
+              <div className="absolute inset-x-0 top-full z-20 mt-1.5 overflow-hidden rounded-2xl bg-white shadow-[0_16px_40px_rgba(60,35,25,0.16)]">
+                {matches.length === 0 ? (
+                  <p className="px-4 py-3 text-[14px] text-neutral-500">
+                    {q.length < 2 ? "Keep typing…" : `No one matches “${q}”`}
+                  </p>
+                ) : (
+                  <ul role="listbox" aria-label="People">
+                    {matches.map((f) => (
+                      <li key={f.id}>
+                        <button
+                          type="button"
+                          onClick={() => addPerson(f)}
+                          className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-neutral-50"
+                        >
+                          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] font-bold uppercase ${tone(f.id)}`}>
+                            {f.username.slice(0, 1)}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[15px] text-neutral-900">
+                            <span className="font-semibold">@{f.username.slice(0, q.length)}</span>
+                            <span className="text-neutral-600">{f.username.slice(q.length)}</span>
+                          </span>
+                          {!friendIds.has(f.id) && <span className="shrink-0 text-[12px] text-neutral-400">not a friend yet</span>}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
-
           </div>
         </section>
 
@@ -355,52 +369,39 @@ export function PlanComposer() {
 
         {/* Where + extras */}
         <div className="space-y-3">
-          <label className="flex h-14 items-center gap-3 rounded-2xl bg-white px-4 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
-            <MapPin className="h-[18px] w-[18px] shrink-0 text-neutral-500" />
-            <input
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Where? (optional)"
-              aria-label="Where"
-              className="min-w-0 flex-1 bg-transparent text-[15px] font-medium outline-none placeholder:font-normal placeholder:text-neutral-400"
-            />
-          </label>
-
-          {showNote && (
-            <label className="relative flex items-start gap-3 rounded-2xl bg-white p-4 pr-12 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  setShowNote(false);
-                  setNote("");
-                }}
-                aria-label="Remove note"
-                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+          <div className="divide-y divide-neutral-100 rounded-2xl bg-white shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
+            <label className="flex h-14 items-center gap-3 px-4">
+              <MapPin className="h-[18px] w-[18px] shrink-0 text-neutral-500" />
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Where? (optional)"
+                aria-label="Where"
+                className="min-w-0 flex-1 bg-transparent text-[15px] font-medium outline-none placeholder:font-normal placeholder:text-neutral-400"
+              />
+            </label>
+            <label className="flex items-start gap-3 px-4 py-[17px]">
               <AlignLeft className="mt-0.5 h-[18px] w-[18px] shrink-0 text-neutral-500" />
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                autoFocus
-                placeholder="Bring a dish to share…"
+                rows={1}
+                placeholder="Add a note (optional)"
                 aria-label="Note"
-                className="min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed outline-none placeholder:text-neutral-400"
+                className="max-h-40 min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-snug outline-none placeholder:text-neutral-400"
+                style={{ fieldSizing: "content" } as React.CSSProperties}
               />
             </label>
-          )}
+          </div>
 
-          {showCost && group && (
+          {showCost && (
             <section className="space-y-3 rounded-2xl bg-white p-4 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
               <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold text-neutral-500">Split a cost</span>
+                <span className="text-[13px] font-semibold text-neutral-500">Fee</span>
                 <button
                   type="button"
                   onClick={() => setShowCost(false)}
-                  aria-label="Remove cost"
+                  aria-label="Remove fee"
                   className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -437,47 +438,19 @@ export function PlanComposer() {
             </section>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            {!showNote && (
-              <button
-                type="button"
-                onClick={() => setShowNote(true)}
-                className="inline-flex h-[38px] items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-neutral-300 px-3.5 text-[13px] font-semibold text-neutral-800"
-              >
-                <Plus className="h-3.5 w-3.5" strokeWidth={2.6} /> Note
-              </button>
-            )}
-            {group && !showCost && (
-              <button
-                type="button"
-                onClick={() => setShowCost(true)}
-                className="inline-flex h-[38px] items-center gap-1.5 rounded-[10px] border-[1.5px] border-dashed border-neutral-300 px-3.5 text-[13px] font-semibold text-neutral-800"
-              >
-                <Plus className="h-3.5 w-3.5" strokeWidth={2.6} /> Split a cost
-              </button>
-            )}
-            {group &&
-              !voting &&
-              EXTRAS.map(({ key, label, icon: Icon }) => {
-                const on = extras.includes(key);
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setExtras((x) => (on ? x.filter((k) => k !== key) : [...x, key]))}
-                    aria-pressed={on}
-                    className={`inline-flex h-[38px] items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-semibold transition ${
-                      on
-                        ? "bg-neutral-900 text-white"
-                        : "border-[1.5px] border-dashed border-neutral-300 text-neutral-800"
-                    }`}
-                  >
-                    {on ? <Check className="h-3.5 w-3.5" strokeWidth={2.8} /> : <Plus className="h-3.5 w-3.5" strokeWidth={2.6} />}
-                    <Icon className="h-3.5 w-3.5" /> {label}
-                  </button>
-                );
-              })}
-          </div>
+          <AddTiles
+            solo={!group}
+            tiles={[
+              ...(!showCost ? [{ key: "fee", label: "Fee", icon: DollarSign, on: false }] : []),
+              ...(!voting
+                ? EXTRAS.map((x) => ({ key: x.key, label: x.label, icon: x.icon, on: extras.includes(x.key) }))
+                : []),
+            ]}
+            onTap={(key) => {
+              if (key === "fee") return setShowCost(true);
+              setExtras((x) => (x.includes(key) ? x.filter((k) => k !== key) : [...x, key]));
+            }}
+          />
         </div>
       </div>
 
@@ -502,5 +475,52 @@ export function PlanComposer() {
         </div>
       </footer>
     </div>
+  );
+}
+
+/**
+ * "Add to this plan" — the same tiles as the plan page. Everything works with
+ * nobody invited yet; guests just see it once they're on the plan.
+ */
+function AddTiles({
+  solo,
+  tiles,
+  onTap,
+}: {
+  solo: boolean;
+  tiles: { key: string; label: string; icon: LucideIcon; on: boolean }[];
+  onTap: (key: string) => void;
+}) {
+  if (tiles.length === 0) return null;
+  return (
+    <section className="rounded-[18px] bg-white p-4 shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
+      <h2 className="text-[16px] font-bold text-neutral-900">Add to this plan</h2>
+      <p className="mt-0.5 text-[13px] text-neutral-500">
+        {solo ? "Set it up now — guests see it when you invite them." : "Guests see it on the plan."}
+      </p>
+      <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}>
+        {tiles.map(({ key, label, icon: Icon, on }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onTap(key)}
+            aria-pressed={on}
+            className={`relative flex h-[72px] flex-col items-center justify-center gap-1.5 rounded-[14px] text-[13px] font-semibold transition ${
+              on
+                ? "bg-neutral-900 text-white"
+                : "border-[1.5px] border-dashed border-neutral-300 text-neutral-900 hover:border-neutral-400 hover:bg-neutral-50"
+            }`}
+          >
+            {on && (
+              <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-white/20">
+                <Check className="h-2.5 w-2.5" strokeWidth={3.4} />
+              </span>
+            )}
+            <Icon className="h-5 w-5" strokeWidth={1.9} />
+            {label}
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }

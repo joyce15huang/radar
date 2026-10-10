@@ -119,6 +119,8 @@ export async function createDirectEvent(input: {
   /** Optional end time (ISO), kept on each card for display. */
   endsAt?: string | null;
   recipientIds: string[];
+  /** A plan that's just you for now — guests can be invited later from its page. */
+  allowSolo?: boolean;
 }): Promise<EventResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -129,7 +131,7 @@ export async function createDirectEvent(input: {
 
   const admin = createAdminClient();
   const recipientIds = [...new Set(input.recipientIds)].filter((id) => id && id !== actor.actorId);
-  if (recipientIds.length === 0) return { ok: false, error: "Add at least one person." };
+  if (recipientIds.length === 0 && !input.allowSolo) return { ok: false, error: "Add at least one person." };
 
   const feeCents =
     input.feeCents && Number.isFinite(input.feeCents) && input.feeCents > 0 ? Math.round(input.feeCents) : null;

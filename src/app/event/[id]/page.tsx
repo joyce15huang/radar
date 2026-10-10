@@ -15,6 +15,7 @@ import { EventFeePanel } from "@/components/EventFeePanel";
 import { PostComposer } from "@/components/PostComposer";
 import { AddSectionBar } from "@/components/SectionControls";
 import { EventPhotos } from "@/components/EventPhotos";
+import { RemoveFromCalendar } from "@/components/RemoveFromCalendar";
 import type { ViewerPhoto } from "@/components/PhotoViewer";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
@@ -165,17 +166,29 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
     displayNote: ev.note || ev.summary || "",
     sourceUrl,
     startsAt: ev.starts_at ?? null,
+    endsAt: myContent.endsAt ?? null,
     hasTime,
     note: ev.note ?? "",
     feeCents,
     paymentLink: ev.payment_link ?? "",
     venmoId: ev.venmo_id ?? "",
     zelleId: ev.zelle_id ?? "",
-    allowReinvite,
     cardId: myCard?.id as string | undefined,
     feePaid,
-    modules,
   };
+
+  // Anyone besides the host on the plan yet? (Changes the add-ons copy.)
+  let hasGuests = false;
+  if (isHost) {
+    const { count } = await admin
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", id)
+      .neq("user_id", ev.creator_id)
+      .neq("type", "event_update")
+      .neq("status", "dismissed");
+    hasGuests = (count ?? 0) > 0;
+  }
 
   const people = (
     <PeopleSection
@@ -260,13 +273,18 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 <EventActions data={{ cardId: myCard?.id as string | undefined, isHost, status: rsvpStatus }} />
               )}
               {people}
-              {isHost && <AddSectionBar eventId={id} modules={modules} />}
+              {isHost && <AddSectionBar eventId={id} modules={modules} hasFee={feeCents > 0} hasGuests={hasGuests} />}
               {hasMod("carpool") && <CarpoolSection eventId={id} />}
               {hasMod("tasks") && <TaskSection eventId={id} />}
               {hasMod("expenses") && <LedgerSection eventId={id} />}
               {chat}
             </div>
           </>
+        )}
+        {isHost && myCard?.id && (
+          <div className="mt-10">
+            <RemoveFromCalendar cardId={myCard.id as string} />
+          </div>
         )}
       </div>
     </main>

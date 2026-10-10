@@ -2,7 +2,8 @@
 
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send } from "lucide-react";
+import { Send, Users } from "lucide-react";
+import { toggleReinvite } from "@/app/event-actions";
 import { GuestList } from "./GuestList";
 import { InviteComposer } from "./InviteComposer";
 
@@ -11,6 +12,8 @@ export function PeopleSection({
   eventId,
   eventTitle,
   canInvite,
+  isHost = false,
+  allowReinvite = false,
 }: {
   eventId: string;
   eventTitle: string;
@@ -23,6 +26,18 @@ export function PeopleSection({
   const [rev, setRev] = useState(0);
   const [counts, setCounts] = useState<{ going: number; invited: number } | null>(null);
   const onCounts = useCallback((going: number, invited: number) => setCounts({ going, invited }), []);
+  const [reinvite, setReinvite] = useState(allowReinvite);
+  const [savingReinvite, setSavingReinvite] = useState(false);
+
+  async function flipReinvite() {
+    if (savingReinvite) return;
+    const next = !reinvite;
+    setReinvite(next);
+    setSavingReinvite(true);
+    const res = await toggleReinvite({ eventId, allow: next });
+    setSavingReinvite(false);
+    if (!res.ok) setReinvite(!next);
+  }
 
   return (
     <section className="space-y-2.5">
@@ -48,6 +63,25 @@ export function PeopleSection({
 
       <div className="overflow-hidden rounded-[18px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
         <GuestList key={rev} eventId={eventId} canInvite={canInvite} onCounts={onCounts} />
+        {isHost && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={reinvite}
+            onClick={flipReinvite}
+            className="flex w-full items-center gap-3 border-t border-neutral-100 px-4 py-3 text-left transition hover:bg-neutral-50"
+          >
+            <Users className="h-[17px] w-[17px] shrink-0 text-neutral-500" />
+            <span className="flex-1 text-[14px] font-medium text-neutral-700">Guests can invite others</span>
+            <span
+              className={`relative h-[26px] w-11 shrink-0 rounded-full transition-colors ${reinvite ? "bg-neutral-900" : "bg-neutral-300"}`}
+            >
+              <span
+                className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow transition-all ${reinvite ? "left-[21px]" : "left-[3px]"}`}
+              />
+            </span>
+          </button>
+        )}
       </div>
 
       {inviting && (

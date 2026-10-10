@@ -279,6 +279,16 @@ export async function inviteToEvent(input: {
   return { ok: true, sent: targets.length, notFound, eventId: event.id };
 }
 
+/**
+ * Open a personal calendar item on the full event page: promotes it into an
+ * event you host (no guests yet) the first time, then returns its id.
+ */
+export async function openAsEvent(cardId: string): Promise<{ ok: boolean; eventId?: string; error?: string }> {
+  const res = await inviteToEvent({ sourceCardId: cardId, recipients: [], allowEmpty: true });
+  if (!res.ok || !res.eventId) return { ok: false, error: res.error ?? "Couldn't open that item." };
+  return { ok: true, eventId: res.eventId };
+}
+
 export interface UpdateHostResult {
   ok: boolean;
   error?: string;
@@ -304,6 +314,8 @@ export async function updateHostEvent(input: {
   paymentLink?: string;
   venmoId?: string;
   zelleId?: string;
+  /** End time (ISO) kept on each card; null clears it, undefined leaves it. */
+  endsAt?: string | null;
 }): Promise<UpdateHostResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -325,7 +337,8 @@ export async function updateHostEvent(input: {
   let startsAt: string | null = null;
   if (input.startsAt) {
     startsAt = input.startsAt;
-    when = formatWhen(input.startsAt, tz, !!input.hasTime);
+    // Callers that send startsAt also send its fresh label (which may carry an end time).
+    when = whenText || formatWhen(input.startsAt, tz, !!input.hasTime);
   } else {
     try {
       const parsed = await parseEvents(whenText, { nowContext: nowContext(tz), multiple: false });
@@ -345,6 +358,15 @@ export async function updateHostEvent(input: {
   const venmoId = input.venmoId?.trim().replace(/^@/, "") || null;
   const zelleId = input.zelleId?.trim() || null;
 
+  // What guests would notice — drives the "updated" note on their Today.
+  const changes: string[] = [];
+  if ((event.title ?? "") !== title) changes.push("New name");
+  const ts = (v: string | null) => (v ? Date.parse(v) : null);
+  if (ts(event.starts_at) !== ts(startsAt) || (event.event_time ?? "") !== when) changes.push("New time");
+  if ((event.location ?? null) !== loc) changes.push("New place");
+  if ((event.note ?? null) !== note) changes.push("New note");
+  if ((event.fee_cents ?? null) !== feeCents) changes.push("Fee changed");
+
   await admin
     .from("events")
     .update({
@@ -363,7 +385,11 @@ export async function updateHostEvent(input: {
   const hostName = await profileName(admin, actorId);
 
   // Silent in-place sync of every attendee's card.
-  const { data: cards } = await admin.from("cards").select("id, user_id, content").eq("event_id", input.eventId);
+  const { data: cards } = await admin
+    .from("cards")
+    .select("id, user_id, content, status, type")
+    .eq("event_id", input.eventId)
+    .neq("type", "event_update");
   for (const card of cards ?? []) {
     const prev = ((card.content ?? {}) as Record<string, string | null>) ?? {};
     const content: Record<string, string | null> = { ...prev, eventTime: when, hostName };
@@ -381,12 +407,27 @@ export async function updateHostEvent(input: {
     else delete content.venmoId;
     if (zelleId) content.zelleId = zelleId;
     else delete content.zelleId;
+    if (input.endsAt !== undefined) {
+      if (input.endsAt) content.endsAt = input.endsAt;
+      else delete content.endsAt;
+    }
     await admin.from("cards").update({ title, content }).eq("id", card.id as string);
+  }
+
+  // Nothing guests would see changed (e.g. only the end time / pay handles):
+  // keep it silent.
+  if (changes.length === 0) {
+    revalidatePath("/today");
+    revalidatePath("/calendar");
+    return { ok: true, when, startsAt };
   }
 
   // Re-surface on Today for guests (not the host). Clear stale updates first so
   // repeated edits don't stack.
+  // One rolling note per guest: quick back-to-back edits replace the last
+  // one instead of stacking. No guests yet → nothing is sent.
   const guestIds = (cards ?? [])
+    .filter((c) => c.status !== "dismissed")
     .map((c) => c.user_id as string)
     .filter((id) => id !== actorId);
   await admin
@@ -401,7 +442,7 @@ export async function updateHostEvent(input: {
         hostName,
         eventTitle: title,
         eventTime: when,
-        changeSummary: "Details updated",
+        changeSummary: changes.length === 1 ? changes[0] : "Details updated",
       };
       if (loc) content.location = loc;
       return {

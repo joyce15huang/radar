@@ -1,37 +1,26 @@
 "use client";
 
-import { useEffect, useState, type ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import {
   MapPin,
   Calendar as CalendarIcon,
   Hourglass,
-  ArrowUpRight,
-  Pencil,
   Loader2,
   Check,
-  Send,
-  Crown,
-  Users,
-  DollarSign,
-  Trash2,
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "framer-motion";
+import { useRouter } from "next/navigation";
 import type {
   DigestCardData,
   SocialInviteCard,
   CalendarRadarCard,
   TimeWindowCard,
 } from "@/lib/types";
-import { windowStatus } from "@/lib/timeWindow";
+import { labelHasTime } from "@/lib/localDateTime";
 import { startKey, cardIso, dayInTz } from "@/lib/calendarSort";
-import { updateCardStatus, updateEventCard } from "@/app/feed-actions";
-import { updateHostEvent, toggleReinvite } from "@/app/event-actions";
-import { InviteComposer } from "./InviteComposer";
-import { DateTimeField, type DTValue } from "./DateTimeField";
-import { clientTimeZone, isoFromLocal, localFromIso, formatWhen, labelHasTime } from "@/lib/localDateTime";
-import { isRedundantNote } from "@/lib/noteText";
+import { updateCardStatus } from "@/app/feed-actions";
+import { openAsEvent } from "@/app/event-actions";
 import { EmptyState } from "./LibraryWall";
 
 type Variant = "upcoming" | "past";
@@ -45,7 +34,6 @@ export function CalendarList({
   initial,
   variant = "upcoming",
   tz,
-  viewerId,
 }: {
   initial: DigestCardData[];
   variant?: Variant;
@@ -53,12 +41,9 @@ export function CalendarList({
   viewerId: string;
 }) {
   const [cards, setCards] = useState(initial);
-  // One card open at a time — tapping another closes the previous.
-  const [openId, setOpenId] = useState<string | null>(null);
 
   const remove = (id: string) => {
     setCards((prev) => prev.filter((c) => c.id !== id));
-    setOpenId((cur) => (cur === id ? null : cur));
     void updateCardStatus(id, "dismissed");
   };
 
@@ -104,9 +89,6 @@ export function CalendarList({
                 card={card}
                 past={variant === "past"}
                 tz={tz}
-                viewerId={viewerId}
-                expanded={openId === card.id}
-                onToggle={() => setOpenId((cur) => (cur === card.id ? null : card.id))}
                 onRemove={() => remove(card.id)}
                 onUpdate={apply}
               />
@@ -247,23 +229,6 @@ interface QuickAction {
   tone?: "primary" | "danger";
 }
 
-/** "Sat, Oct 10 · 7:00 PM" (or just the date for an all-day item) in tz. */
-function fullWhen(card: EventCard, tz: string): string {
-  if (card.type === "time_window") return windowStatus({ expiresAt: card.expiresAt, opensAt: card.opensAt })?.label ?? "";
-  const iso = card.startsAt;
-  const label = card.type === "social_invite" ? card.eventTime : card.time;
-  if (!iso || Number.isNaN(Date.parse(iso))) return label ?? "";
-  const d = new Date(iso);
-  const opts = (o: Intl.DateTimeFormatOptions) => {
-    try {
-      return new Intl.DateTimeFormat("en-US", { timeZone: tz, ...o }).format(d);
-    } catch {
-      return new Intl.DateTimeFormat("en-US", o).format(d);
-    }
-  };
-  const date = opts({ weekday: "short", month: "short", day: "numeric" });
-  return labelHasTime(label) ? `${date} · ${opts({ hour: "numeric", minute: "2-digit" })}` : date;
-}
 
 /**
  * One compact agenda row. Tapping it pops the event up as a card (details +
@@ -274,21 +239,19 @@ function EventRow({
   card,
   past,
   tz,
-  viewerId,
-  expanded,
-  onToggle,
   onRemove,
   onUpdate,
 }: {
   card: DigestCardData;
   past: boolean;
   tz: string;
-  viewerId: string;
-  expanded: boolean;
-  onToggle: () => void;
   onRemove: () => void;
   onUpdate: (updated: DigestCardData) => void;
 }) {
+  const router = useRouter();
+  const [opening, setOpening] = useState(false);
+  const [openError, setOpenError] = useState(false);
+
   if (
     card.type !== "social_invite" &&
     card.type !== "calendar_radar" &&
@@ -304,6 +267,21 @@ function EventRow({
   const title = isInvite ? card.eventTitle : card.title;
   const location = !isWindow ? card.location : undefined;
   const eventId = isInvite ? card.eventId : undefined;
+
+  // Personal items open the same full page as shared events: the first tap
+  // quietly turns the item into an event you host (no one invited yet).
+  const openPage = async () => {
+    if (opening) return;
+    setOpening(true);
+    setOpenError(false);
+    const res = await openAsEvent(card.id);
+    if (res.ok && res.eventId) {
+      router.push(`/event/${res.eventId}`);
+      return;
+    }
+    setOpening(false);
+    setOpenError(true);
+  };
 
   const respond = (accept: boolean) => {
     if (!accept) {
@@ -331,6 +309,7 @@ function EventRow({
               </p>
             )}
             {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
+            {openError && <p className="mt-0.5 text-[12px] font-medium text-rose-600">Couldn&rsquo;t open — try again</p>}
           </div>
     </>
   );
@@ -356,11 +335,13 @@ function EventRow({
         ) : (
         <button
           type="button"
-          onClick={onToggle}
-          aria-haspopup="dialog"
-          className="flex min-w-0 flex-1 gap-3 p-3.5 text-left"
+          onClick={openPage}
+          disabled={opening}
+          aria-busy={opening}
+          className="flex min-w-0 flex-1 items-center gap-3 p-3.5 text-left"
         >
           {rowBody}
+          {opening && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" />}
         </button>
         )}
 
@@ -373,21 +354,6 @@ function EventRow({
       </div>
     </div>
 
-      <AnimatePresence>
-        {expanded && (
-          <EventPopup
-            key="popup"
-            card={card}
-            past={past}
-            tz={tz}
-            viewerId={viewerId}
-            onClose={onToggle}
-            onRemove={onRemove}
-            onUpdate={onUpdate}
-            onRespond={respond}
-          />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -396,240 +362,6 @@ function EventRow({
 function rowBar(card: EventCard): string {
   if (card.type === "social_invite") return card.status === "pending" ? "bg-fuchsia-300" : "bg-fuchsia-600";
   return card.type === "calendar_radar" ? "bg-sky-600" : "bg-amber-500";
-}
-
-/** The popped-up event card: details, small icon actions, inline edit. */
-function EventPopup({
-  card,
-  past,
-  tz,
-  viewerId,
-  onClose,
-  onRemove,
-  onUpdate,
-  onRespond,
-}: {
-  card: EventCard;
-  past: boolean;
-  tz: string;
-  viewerId: string;
-  onClose: () => void;
-  onRemove: () => void;
-  onUpdate: (updated: DigestCardData) => void;
-  onRespond: (accept: boolean) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [inviting, setInviting] = useState(false);
-
-  // Esc closes (unless the invite sheet is on top, which handles its own close).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !inviting) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, inviting]);
-
-  const isInvite = card.type === "social_invite";
-  const isWindow = card.type === "time_window";
-  const isRadar = card.type === "calendar_radar";
-  const isPending = isInvite && card.status === "pending";
-
-  const hostId = isInvite ? card.hostId : undefined;
-  const isHost = isInvite && !!hostId && hostId === viewerId;
-  const isGuest = isInvite && !!hostId && !isHost;
-  const eventId = isInvite ? card.eventId : undefined;
-  const allowReinvite = isInvite ? !!card.allowReinvite : false;
-
-  const canEditHost = isInvite && isHost && !!eventId && !past;
-  const canEditPersonal = isRadar && !past;
-  const canEdit = canEditHost || canEditPersonal;
-
-  // Inviting a personal/saved item turns it into a shared event behind the
-  // scenes (you become its host); on a shared event it invites more people.
-  const isPromote = (isWindow || isRadar) && !past;
-  const canReinvite =
-    isInvite && !isPending && !!eventId && !past && (isHost || (isGuest && allowReinvite));
-  const canInvite = isPromote || canReinvite;
-
-  const title = isInvite ? card.eventTitle : card.title;
-  const timeLabel = isInvite ? card.eventTime : isRadar ? card.time : "";
-  const location = !isWindow ? card.location : undefined;
-  const radarDetails = isRadar ? card.details : undefined;
-  const sourceUrl = isInvite ? card.sourceUrl : isWindow ? card.actionUrl : undefined;
-  const when = fullWhen(card, tz);
-
-  const inviteTarget = isPromote
-    ? ({ kind: "source", cardId: card.id } as const)
-    : ({ kind: "event", eventId: eventId as string } as const);
-
-  const actions: QuickAction[] = [];
-  if (!past && !isPending) {
-    if (canInvite)
-      actions.push({
-        label: isPromote ? "Invite friends" : "Invite more friends",
-        icon: Send,
-        onClick: () => setInviting(true),
-        tone: "primary",
-      });
-    if (canEdit) actions.push({ label: "Edit", icon: Pencil, onClick: () => setEditing(true) });
-  }
-  if (eventId) actions.push({ label: "Open event page", icon: ArrowUpRight, href: `/event/${eventId}` });
-  if (!isPending)
-    actions.push({
-      label: "Remove from calendar",
-      icon: Trash2,
-      onClick: () => {
-        onClose();
-        onRemove();
-      },
-      tone: "danger",
-    });
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
-      onClick={onClose}
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        initial={{ opacity: 0, scale: 0.92, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 8 }}
-        transition={{ type: "spring", stiffness: 420, damping: 32 }}
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[85dvh] w-full max-w-sm overflow-y-auto overscroll-contain rounded-[24px] bg-white shadow-[0_24px_60px_rgba(24,24,27,0.25)]"
-      >
-        <div className={`h-1.5 w-full ${rowBar(card)}`} aria-hidden />
-        <div className="p-5">
-          {/* Top line: when + small icon actions + close */}
-          <div className="flex items-center justify-between gap-3">
-            <p className="min-w-0 truncate text-[13px] font-semibold text-neutral-500">{when}</p>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {!editing && actions.map((a) => <IconButton key={a.label} {...a} />)}
-              <IconButton label="Close" icon={X} onClick={onClose} />
-            </div>
-          </div>
-
-          {editing && canEdit ? (
-            <div className="mt-3">
-              <EditForm
-                card={card as SocialInviteCard | CalendarRadarCard}
-                mode={canEditHost ? "host" : "personal"}
-                eventId={eventId}
-                onCancel={() => setEditing(false)}
-                onSaved={(updated) => {
-                  onUpdate(updated);
-                  setEditing(false);
-                }}
-              />
-            </div>
-          ) : (
-            <>
-              {isPending && (
-                <p className="mt-3 text-[13px] font-semibold text-fuchsia-700">{card.senderName} invited you</p>
-              )}
-              <h2 className={`${isPending ? "mt-0.5" : "mt-3"} text-[22px] font-bold leading-tight tracking-tight text-neutral-900`}>
-                {title}
-              </h2>
-              {location && (
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1.5 flex items-center gap-1.5 text-[14px] text-neutral-600 hover:text-neutral-900"
-                >
-                  <MapPin className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{location}</span>
-                </a>
-              )}
-
-              <div className="mt-3 space-y-1.5 text-[14px] leading-relaxed text-neutral-600">
-                {isInvite && isHost && (
-                  <p className="flex items-center gap-1.5 font-medium text-fuchsia-700">
-                    <Crown className="h-4 w-4" /> You&rsquo;re hosting
-                  </p>
-                )}
-                {isInvite && isGuest && (
-                  <p className="text-neutral-500">
-                    Hosted by {card.hostName ?? card.senderName}
-                    <span className="ml-1 text-neutral-400">· only they can edit</span>
-                  </p>
-                )}
-                {isInvite && card.note && !isRedundantNote(card.note, { time: timeLabel, location }) && (
-                  <p className="whitespace-pre-wrap text-neutral-700">{card.note}</p>
-                )}
-                {isInvite && card.summary && <p>{card.summary}</p>}
-                {isInvite && card.fee && card.fee > 0 && (
-                  <p className="flex items-center gap-1 font-medium text-neutral-700">
-                    <DollarSign className="h-3.5 w-3.5 text-neutral-400" strokeWidth={2} />
-                    {money(card.fee)} to join
-                  </p>
-                )}
-                {radarDetails && !isRedundantNote(radarDetails, { time: timeLabel, location }) && (
-                  <p className="whitespace-pre-wrap text-neutral-700">{radarDetails}</p>
-                )}
-                {isWindow && card.summary && <p>{card.summary}</p>}
-                {isWindow && <p className="text-[13px] text-neutral-500">Saved from Today</p>}
-                {sourceUrl && (
-                  <a
-                    href={sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 font-medium text-neutral-800 underline-offset-2 hover:underline"
-                  >
-                    {isWindow ? card.actionLabel : "Original listing"}
-                    <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.25} />
-                  </a>
-                )}
-              </div>
-
-              {isPending && !past && (
-                <div className="mt-4 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onRespond(false);
-                    }}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full border border-neutral-200 px-3.5 text-[13px] font-semibold text-neutral-700 transition hover:bg-neutral-50"
-                  >
-                    <X className="h-3.5 w-3.5" strokeWidth={2.4} /> Decline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onRespond(true);
-                    }}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-fuchsia-700 px-3.5 text-[13px] font-semibold text-white transition hover:bg-fuchsia-800"
-                  >
-                    <Check className="h-3.5 w-3.5" strokeWidth={2.4} /> Accept
-                  </button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </motion.div>
-
-      {inviting && (
-        <div onClick={(e) => e.stopPropagation()}>
-          <InviteComposer
-            eventTitle={title}
-            target={inviteTarget}
-            onClose={() => setInviting(false)}
-          />
-        </div>
-      )}
-    </motion.div>
-  );
 }
 
 /** A small round icon button (label shows as a tooltip + screen-reader name). */
@@ -653,238 +385,3 @@ function IconButton({ label, icon: Icon, onClick, href, tone }: QuickAction) {
   );
 }
 
-/* -------------------------------- edit form ------------------------------- */
-
-function EditForm({
-  card,
-  mode,
-  eventId,
-  onCancel,
-  onSaved,
-}: {
-  card: SocialInviteCard | CalendarRadarCard;
-  mode: "host" | "personal";
-  eventId?: string;
-  onCancel: () => void;
-  onSaved: (updated: DigestCardData) => void;
-}) {
-  const tz = clientTimeZone();
-  const isInvite = card.type === "social_invite";
-  const initialReinvite = card.type === "social_invite" ? !!card.allowReinvite : false;
-  const [title, setTitle] = useState(isInvite ? card.eventTitle : card.title);
-  const [dt, setDt] = useState<DTValue>(() => {
-    const hasTime = labelHasTime(isInvite ? card.eventTime : card.time);
-    const local = card.startsAt ? localFromIso(card.startsAt, tz) : null;
-    if (local) return { date: local.date, time: hasTime ? local.time : null };
-    const now = localFromIso(new Date().toISOString(), tz);
-    return { date: now?.date ?? "", time: null };
-  });
-  const [location, setLocation] = useState(card.location ?? "");
-  const [note, setNote] = useState((isInvite ? card.note : card.details) ?? "");
-  const [allowReinvite, setAllowReinvite] = useState(initialReinvite);
-  const [feeStr, setFeeStr] = useState(isInvite && card.fee ? String(card.fee / 100) : "");
-  const [paymentLink, setPaymentLink] = useState(isInvite ? card.paymentLink ?? "" : "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const field =
-    "w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:placeholder:text-neutral-600 dark:focus:ring-neutral-700";
-
-  async function save() {
-    if (!title.trim()) {
-      setError("Give it a title.");
-      return;
-    }
-    const startsAt = isoFromLocal(dt.date, dt.time, tz);
-    if (!startsAt) {
-      setError("Pick a date.");
-      return;
-    }
-    const hasTime = dt.time !== null;
-    const when = formatWhen(startsAt, tz, hasTime);
-
-    setSaving(true);
-    setError(null);
-
-    const parsedFee = parseFloat(feeStr);
-    const feeCents =
-      feeStr.trim() && Number.isFinite(parsedFee) && parsedFee > 0
-        ? Math.round(parsedFee * 100)
-        : null;
-
-    if (mode === "host" && eventId) {
-      const res = await updateHostEvent({
-        eventId,
-        title: title.trim(),
-        whenText: when,
-        startsAt,
-        hasTime,
-        location: location.trim(),
-        note: note.trim(),
-        feeCents,
-        paymentLink: paymentLink.trim(),
-      });
-      if (!res.ok) {
-        setSaving(false);
-        setError(res.error ?? "Couldn't save.");
-        return;
-      }
-      // The "let guests invite others" permission lives in edit now — persist it
-      // alongside the rest of the host's changes when it was toggled.
-      if (allowReinvite !== initialReinvite) {
-        await toggleReinvite({ eventId, allow: allowReinvite });
-      }
-    } else {
-      const res = await updateEventCard({
-        id: card.id,
-        type: card.type as "social_invite" | "calendar_radar",
-        title: title.trim(),
-        whenText: when,
-        startsAt,
-        hasTime,
-        location: location.trim(),
-        note: note.trim(),
-      });
-      if (!res.ok) {
-        setSaving(false);
-        setError(res.error ?? "Couldn't save.");
-        return;
-      }
-    }
-
-    setSaving(false);
-    const loc = location.trim() || undefined;
-    const nt = note.trim() || undefined;
-    const updated: DigestCardData = isInvite
-      ? {
-          ...(card as SocialInviteCard),
-          eventTitle: title.trim(),
-          eventTime: when,
-          startsAt,
-          location: loc,
-          note: nt,
-          allowReinvite,
-          fee: feeCents ?? undefined,
-          paymentLink: paymentLink.trim() || undefined,
-        }
-      : { ...(card as CalendarRadarCard), title: title.trim(), time: when, startsAt, location: loc, details: nt };
-    onSaved(updated);
-  }
-
-  return (
-    <div className="space-y-2.5">
-      {mode === "host" && (
-        <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          Editing as host — guests&rsquo; calendars update automatically.
-        </p>
-      )}
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Title</span>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className={field} />
-      </label>
-      <div>
-        <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">When</span>
-        <DateTimeField value={dt} onChange={setDt} />
-      </div>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Location</span>
-        <input
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          placeholder="optional"
-          className={field}
-        />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-          {isInvite ? "Note" : "Details"}
-        </span>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="optional"
-          rows={4}
-          className={`${field} max-h-40 resize-y overflow-y-auto whitespace-pre-wrap break-words`}
-        />
-      </label>
-
-      {/* Host-only: participation fee + pay link. No real money is processed. */}
-      {mode === "host" && isInvite && (
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-              Fee to join ($)
-            </span>
-            <input
-              value={feeStr}
-              onChange={(e) => setFeeStr(e.target.value)}
-              inputMode="decimal"
-              placeholder="blank = free"
-              className={field}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-              Payment link
-            </span>
-            <input
-              value={paymentLink}
-              onChange={(e) => setPaymentLink(e.target.value)}
-              placeholder="venmo.com/you"
-              className={field}
-            />
-          </label>
-        </div>
-      )}
-
-      {/* Host-only permission — lives in Edit, not on the read-only card. */}
-      {mode === "host" && isInvite && (
-        <label className="flex items-center gap-2 pt-0.5 text-sm text-neutral-600 dark:text-neutral-300">
-          <input
-            type="checkbox"
-            checked={allowReinvite}
-            onChange={(e) => setAllowReinvite(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 text-neutral-900 focus:ring-neutral-400 dark:border-neutral-600"
-          />
-          <Users className="h-3.5 w-3.5 text-neutral-400" />
-          Let guests invite others
-        </label>
-      )}
-
-      {error && <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
-
-      <div className="flex items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={saving}
-          className="rounded-full border border-neutral-200 px-3 py-1.5 text-sm font-medium text-neutral-600 transition hover:bg-neutral-100 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="inline-flex items-center gap-1.5 rounded-full bg-neutral-900 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-neutral-700 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…
-            </>
-          ) : (
-            <>
-              <Check className="h-3.5 w-3.5" /> Save
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Integer cents → "$40" / "$16.67". */
-function money(cents: number): string {
-  const dollars = cents / 100;
-  return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
-}
