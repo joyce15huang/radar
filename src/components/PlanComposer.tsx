@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { X, Search, Check, CalendarDays, MapPin, Plus, AlignLeft, ArrowRight, Loader2 } from "lucide-react";
+import { X, Search, Check, CalendarDays, MapPin, Plus, AlignLeft, ArrowRight, Loader2, Car, Receipt, ListChecks } from "lucide-react";
 import { listFriendOptions } from "@/app/friends-actions";
 import { confirmSchedule } from "@/app/schedule-actions";
 import { createDirectEvent, createPoll } from "@/app/poll-actions";
+import { setEventModules } from "@/app/module-actions";
 import type { FriendOption } from "@/lib/friends";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { clientTimeZone, isoFromLocal, formatWhen, localFromIso } from "@/lib/localDateTime";
@@ -18,19 +19,24 @@ const AVATAR_TONES = [
   "bg-violet-600 text-white",
   "bg-amber-300 text-neutral-900",
 ];
-const TIMES: { label: string; value: string }[] = [
-  { label: "10 AM", value: "10:00" },
-  { label: "12 PM", value: "12:00" },
-  { label: "6 PM", value: "18:00" },
-  { label: "7 PM", value: "19:00" },
-  { label: "8 PM", value: "20:00" },
-];
 const PAY_KEY = "pdd-pay-handles";
+/** Optional sections a group plan can start with (event "modules"). */
+const EXTRAS = [
+  { key: "carpool", label: "Carpool", icon: Car },
+  { key: "expenses", label: "Expenses", icon: Receipt },
+  { key: "tasks", label: "Tasks", icon: ListChecks },
+] as const;
 
 /** Local YYYY-MM-DD for today + n days. */
 function dayOffset(n: number, tz: string): string {
   const d = new Date(Date.now() + n * 86_400_000).toISOString();
   return localFromIso(d, tz)?.date ?? d.slice(0, 10);
+}
+/** "Oct 22" for a YYYY-MM-DD picked from the calendar. */
+function shortDate(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d, 12)));
 }
 function chipLabel(ymd: string, i: number): string {
   if (i === 0) return "Today";
@@ -48,7 +54,7 @@ function chipLabel(ymd: string, i: number): string {
 export function PlanComposer() {
   const router = useRouter();
   const tz = clientTimeZone();
-  const days = useMemo(() => Array.from({ length: 5 }, (_, i) => dayOffset(i, tz)), [tz]);
+  const days = useMemo(() => Array.from({ length: 3 }, (_, i) => dayOffset(i, tz)), [tz]);
 
   const [title, setTitle] = useState("");
   const [friends, setFriends] = useState<FriendOption[]>([]);
@@ -58,9 +64,10 @@ export function PlanComposer() {
 
   const [mode, setMode] = useState<"set" | "vote">("set");
   const [date, setDate] = useState(days[0]);
-  const [time, setTime] = useState<string | null>("19:00");
-  const [customDate, setCustomDate] = useState(false);
-  const [customTime, setCustomTime] = useState(false);
+  const [clock, setClock] = useState("18:00");
+  const [allDay, setAllDay] = useState(false);
+  const time = allDay ? null : clock || null;
+  const customDate = !days.includes(date);
   const [options, setOptions] = useState<DTValue[]>([
     { date: days[1], time: "19:00" },
     { date: days[2], time: "19:00" },
@@ -72,6 +79,7 @@ export function PlanComposer() {
   const [showCost, setShowCost] = useState(false);
   const [cost, setCost] = useState("");
   const [venmo, setVenmo] = useState("");
+  const [extras, setExtras] = useState<string[]>([]);
   const [zelle, setZelle] = useState("");
 
   const [sending, setSending] = useState(false);
@@ -183,11 +191,12 @@ export function PlanComposer() {
     });
     setSending(false);
     if (!res.ok || !res.eventId) return setError(res.error ?? "Couldn't create the event.");
+    if (extras.length > 0) await setEventModules(res.eventId, extras);
     router.push(`/event/${res.eventId}`);
   }
 
   const chip = (on: boolean) =>
-    `h-[42px] rounded-xl px-4 text-[14px] font-semibold transition active:scale-[0.97] ${
+    `h-[42px] rounded-xl px-3.5 text-[14px] font-semibold transition active:scale-[0.97] ${
       on ? "bg-neutral-900 text-white" : "bg-neutral-200/70 text-neutral-900 hover:bg-neutral-200"
     }`;
 
@@ -319,7 +328,7 @@ export function PlanComposer() {
                 ))}
                 <button
                   type="button"
-                  onClick={() => setOptions((p) => [...p, { date: days[Math.min(p.length + 1, 4)], time: "19:00" }])}
+                  onClick={() => setOptions((p) => [...p, { date: dayOffset(p.length + 1, tz), time: "19:00" }])}
                   className="flex h-12 w-full items-center gap-2 px-4 text-[14px] font-semibold text-fuchsia-800"
                 >
                   <Plus className="h-4 w-4" /> Add a time
@@ -329,79 +338,60 @@ export function PlanComposer() {
             </div>
           ) : (
             <>
-              <div className="flex flex-wrap gap-2">
+              {/* Day: a few quick picks + a calendar, one row */}
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
                 {days.map((d, i) => (
                   <button
                     key={d}
                     type="button"
-                    onClick={() => {
-                      setDate(d);
-                      setCustomDate(false);
-                    }}
-                    aria-pressed={!customDate && date === d}
-                    className={chip(!customDate && date === d)}
+                    onClick={() => setDate(d)}
+                    aria-pressed={date === d}
+                    className={`${chip(date === d)} shrink-0`}
                   >
                     {chipLabel(d, i)}
                   </button>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => setCustomDate(true)}
-                  aria-label="Pick a date"
-                  className={`flex h-[42px] w-[42px] items-center justify-center rounded-xl transition ${
+                <label
+                  className={`relative flex h-[42px] shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-[14px] font-semibold transition ${
                     customDate ? "bg-neutral-900 text-white" : "bg-neutral-200/70 text-neutral-900"
                   }`}
                 >
                   <CalendarDays className="h-[17px] w-[17px]" />
-                </button>
+                  {customDate && date ? shortDate(date) : <span className="sr-only">Pick a date</span>}
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => e.target.value && setDate(e.target.value)}
+                    onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
+                    aria-label="Pick a date"
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                  />
+                </label>
               </div>
-              {customDate && (
+
+              {/* Time: an editable time + All day, one row */}
+              <div className="flex items-center gap-2">
                 <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  aria-label="Date"
-                  className="h-11 rounded-xl bg-white px-3 text-[15px] shadow-[0_1px_2px_rgba(0,0,0,0.05)] outline-none"
+                  type="time"
+                  value={clock}
+                  onChange={(e) => {
+                    setClock(e.target.value);
+                    setAllDay(false);
+                  }}
+                  aria-label="Time"
+                  className={`h-[42px] w-[132px] rounded-xl px-3 text-[15px] font-semibold outline-none transition ${
+                    allDay ? "bg-neutral-200/70 text-neutral-400" : "bg-white text-neutral-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                  }`}
                 />
-              )}
-              <div className="flex flex-wrap gap-2">
-                {TIMES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => {
-                      setTime(t.value);
-                      setCustomTime(false);
-                    }}
-                    aria-pressed={!customTime && time === t.value}
-                    className={chip(!customTime && time === t.value)}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-                <button type="button" onClick={() => setCustomTime(true)} className={chip(customTime)}>
-                  Other
-                </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setTime(null);
-                    setCustomTime(false);
-                  }}
-                  className={chip(time === null)}
+                  onClick={() => setAllDay((v) => !v)}
+                  aria-pressed={allDay}
+                  className={chip(allDay)}
                 >
                   All day
                 </button>
               </div>
-              {customTime && (
-                <input
-                  type="time"
-                  value={time ?? ""}
-                  onChange={(e) => setTime(e.target.value || null)}
-                  aria-label="Time"
-                  className="h-11 w-40 rounded-xl bg-white px-3 text-[15px] shadow-[0_1px_2px_rgba(0,0,0,0.05)] outline-none"
-                />
-              )}
               {group && (
                 <button
                   type="button"
@@ -429,7 +419,19 @@ export function PlanComposer() {
           </label>
 
           {showNote && (
-            <label className="flex items-start gap-3 rounded-2xl bg-white p-4 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
+            <label className="relative flex items-start gap-3 rounded-2xl bg-white p-4 pr-12 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setShowNote(false);
+                  setNote("");
+                }}
+                aria-label="Remove note"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
               <AlignLeft className="mt-0.5 h-[18px] w-[18px] shrink-0 text-neutral-500" />
               <textarea
                 value={note}
@@ -506,6 +508,27 @@ export function PlanComposer() {
                 <Plus className="h-3.5 w-3.5" strokeWidth={2.6} /> Split a cost
               </button>
             )}
+            {group &&
+              !voting &&
+              EXTRAS.map(({ key, label, icon: Icon }) => {
+                const on = extras.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setExtras((x) => (on ? x.filter((k) => k !== key) : [...x, key]))}
+                    aria-pressed={on}
+                    className={`inline-flex h-[38px] items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-semibold transition ${
+                      on
+                        ? "bg-neutral-900 text-white"
+                        : "border-[1.5px] border-dashed border-neutral-300 text-neutral-800"
+                    }`}
+                  >
+                    {on ? <Check className="h-3.5 w-3.5" strokeWidth={2.8} /> : <Plus className="h-3.5 w-3.5" strokeWidth={2.6} />}
+                    <Icon className="h-3.5 w-3.5" /> {label}
+                  </button>
+                );
+              })}
           </div>
         </div>
       </div>

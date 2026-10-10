@@ -315,25 +315,8 @@ function EventRow({
     void updateCardStatus(card.id, "accepted");
   };
 
-  // The popup sits outside the (possibly faded) row so it isn't dimmed or
-  // trapped in the row's stacking context.
-  return (
-    <div>
-    <div className={`flex gap-3 ${past ? "opacity-80" : ""}`}>
-      <TimeTile card={card} tz={tz} />
-      <div
-        className={`flex min-w-0 flex-1 items-center overflow-hidden rounded-2xl ${
-          isPending
-            ? "border border-dashed border-fuchsia-300 bg-fuchsia-50/40"
-            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
-        }`}
-      >
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-haspopup="dialog"
-          className="flex min-w-0 flex-1 gap-3 p-3.5 text-left"
-        >
+  const rowBody = (
+    <>
           <span className={`w-1 shrink-0 self-stretch rounded-full ${barClass}`} aria-hidden />
           <div className="min-w-0 flex-1">
             {isPending && (
@@ -355,7 +338,37 @@ function EventRow({
               </div>
             )}
           </div>
+    </>
+  );
+
+  // The popup sits outside the (possibly faded) row so it isn't dimmed or
+  // trapped in the row's stacking context.
+  return (
+    <div>
+    <div className={`flex gap-3 ${past ? "opacity-80" : ""}`}>
+      <TimeTile card={card} tz={tz} />
+      <div
+        className={`flex min-w-0 flex-1 items-center overflow-hidden rounded-2xl ${
+          isPending
+            ? "border border-dashed border-fuchsia-300 bg-fuchsia-50/40"
+            : "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]"
+        }`}
+      >
+        {eventId ? (
+          // Shared events have a full page — go straight there.
+          <Link href={`/event/${eventId}`} className="flex min-w-0 flex-1 gap-3 p-3.5 text-left">
+            {rowBody}
+          </Link>
+        ) : (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-haspopup="dialog"
+          className="flex min-w-0 flex-1 gap-3 p-3.5 text-left"
+        >
+          {rowBody}
         </button>
+        )}
 
         {isPending && !past && (
           <div className="flex shrink-0 items-center gap-1.5 pr-3">

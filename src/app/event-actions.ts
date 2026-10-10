@@ -153,6 +153,8 @@ export async function inviteToEvent(input: {
   recipients: string[];
   allowReinvite?: boolean;
   note?: string;
+  /** Allow zero recipients — used to turn a personal item into a shareable event (for its link). */
+  allowEmpty?: boolean;
 }): Promise<InviteResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -234,6 +236,10 @@ export async function inviteToEvent(input: {
     return { ok: false, error: "Nothing to invite to." };
   }
 
+  if (recipientIds.length === 0 && input.allowEmpty) {
+    revalidatePath("/calendar");
+    return { ok: true, sent: 0, notFound, eventId: event.id };
+  }
   if (recipientIds.length === 0) {
     return {
       ok: false,

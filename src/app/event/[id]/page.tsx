@@ -13,6 +13,7 @@ import { CommentsSection } from "@/components/CommentsSection";
 import { Section } from "@/components/Section";
 import { EventFeePanel } from "@/components/EventFeePanel";
 import { PostComposer } from "@/components/PostComposer";
+import { AddSectionBar } from "@/components/SectionControls";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
 import { publicImageUrl } from "@/lib/storage";
@@ -257,6 +258,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 <EventActions data={{ cardId: myCard?.id as string | undefined, isHost, status: rsvpStatus }} />
               )}
               {people}
+              {isHost && <AddSectionBar eventId={id} modules={modules} />}
               {hasMod("carpool") && <CarpoolSection eventId={id} />}
               {hasMod("tasks") && <TaskSection eventId={id} />}
               {hasMod("expenses") && <LedgerSection eventId={id} />}

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { eventForCode } from "@/lib/inviteLinks";
+import { inviteToEvent } from "@/app/event-actions";
 
 const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -86,6 +87,17 @@ export async function getInviteLink(eventId: string): Promise<InviteLinkResult> 
   if (!code) return { ok: false, error: "Couldn't create a link. Try again." };
 
   return { ok: true, url: `${await siteOrigin()}/i/${code}` };
+}
+
+/**
+ * Invite link for a personal calendar item: turns it into a shared event you
+ * host (no one invited yet), then returns that event's link.
+ */
+export async function getInviteLinkForCard(cardId: string): Promise<InviteLinkResult & { eventId?: string }> {
+  const res = await inviteToEvent({ sourceCardId: cardId, recipients: [], allowEmpty: true });
+  if (!res.ok || !res.eventId) return { ok: false, error: res.error ?? "Couldn't make it shareable." };
+  const link = await getInviteLink(res.eventId);
+  return { ...link, eventId: res.eventId };
 }
 
 /**

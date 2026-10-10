@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X, Send, Loader2, Check, Link2 } from "lucide-react";
 import { inviteToEvent } from "@/app/event-actions";
-import { getInviteLink } from "@/app/invite-link-actions";
+import { getInviteLink, getInviteLinkForCard } from "@/app/invite-link-actions";
 import { listFriendOptions } from "@/app/friends-actions";
 import { FriendPicker } from "@/components/FriendPicker";
 import type { FriendOption } from "@/lib/friends";
@@ -33,7 +33,22 @@ export function InviteComposer({
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<number | null>(null);
   const [eventId, setEventId] = useState<string | null>(target.kind === "event" ? target.eventId : null);
-  const [link, setLink] = useState<"idle" | "loading" | "copied" | "shared">("idle");
+  const [linkUrl, setLinkUrl] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [link, setLink] = useState<"idle" | "loading" | "copied">("idle");
+
+  // Existing events: show their invite link straight away.
+  const existingEventId = target.kind === "event" ? target.eventId : null;
+  useEffect(() => {
+    if (!existingEventId) return;
+    let active = true;
+    getInviteLink(existingEventId)
+      .then((r) => active && r.ok && r.url && setLinkUrl(r.url))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [existingEventId]);
 
   useEffect(() => {
     let active = true;
@@ -48,7 +63,7 @@ export function InviteComposer({
   // Refresh only once the sheet closes: sending from a personal item remounts
   // the calendar list, which would otherwise unmount this sheet mid-send.
   const close = () => {
-    if (sent !== null) router.refresh();
+    if (sent !== null || dirty) router.refresh();
     onClose();
   };
 
@@ -67,24 +82,42 @@ export function InviteComposer({
     setSent(res.sent ?? 0);
   }
 
-  async function shareLink() {
-    if (!eventId) return;
+  /** Personal items have no event yet — making a link turns them into one you host. */
+  async function createLink() {
     setLink("loading");
     setError(null);
-    const r = await getInviteLink(eventId);
-    if (!r.ok || !r.url) {
-      setLink("idle");
-      return setError(r.error ?? "Couldn't make a link.");
+    let url: string | undefined;
+    let err: string | undefined;
+    if (eventId) {
+      const r = await getInviteLink(eventId);
+      url = r.url;
+      err = r.error;
+    } else if (target.kind === "source") {
+      const r = await getInviteLinkForCard(target.cardId);
+      url = r.url;
+      err = r.error;
+      if (r.eventId) {
+        setEventId(r.eventId);
+        setDirty(true); // it's a shared event now — refresh the calendar on close
+      }
     }
+    setLink("idle");
+    if (!url) return setError(err ?? "Couldn't make a link.");
+    setLinkUrl(url);
+  }
+
+  async function copyLink() {
+    if (!linkUrl) return;
     try {
       if (navigator.share && window.matchMedia("(pointer: coarse)").matches) {
-        await navigator.share({ title: eventTitle, url: r.url });
-        return setLink("shared");
+        await navigator.share({ title: eventTitle, url: linkUrl });
+      } else {
+        await navigator.clipboard.writeText(linkUrl);
       }
-      await navigator.clipboard.writeText(r.url);
       setLink("copied");
+      window.setTimeout(() => setLink("idle"), 2000);
     } catch {
-      setLink("idle");
+      /* share sheet dismissed */
     }
   }
 
@@ -128,23 +161,35 @@ export function InviteComposer({
           </div>
         )}
 
-        {eventId && (
-          <button
-            type="button"
-            onClick={shareLink}
-            disabled={link === "loading"}
-            className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-neutral-200 text-[15px] font-semibold text-neutral-800 transition hover:bg-neutral-50"
-          >
-            {link === "loading" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : link === "copied" || link === "shared" ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Link2 className="h-4 w-4" />
-            )}
-            {link === "copied" ? "Link copied" : link === "shared" ? "Shared" : "Copy invite link"}
-          </button>
-        )}
+        <div className="mt-5 border-t border-neutral-100 pt-4">
+          <p className="mb-2 text-[13px] font-semibold text-neutral-500">Invite link</p>
+          {linkUrl ? (
+            <div className="flex items-center gap-2 rounded-2xl bg-neutral-100 p-1.5 pl-3.5">
+              <Link2 className="h-4 w-4 shrink-0 text-neutral-500" />
+              <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-neutral-800">
+                {linkUrl.replace(/^https?:\/\//, "")}
+              </span>
+              <button
+                type="button"
+                onClick={copyLink}
+                className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-neutral-900 px-4 text-sm font-semibold text-white transition hover:bg-neutral-700"
+              >
+                {link === "copied" ? <Check className="h-4 w-4" /> : null}
+                {link === "copied" ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={createLink}
+              disabled={link === "loading"}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-neutral-200 text-[15px] font-semibold text-neutral-800 transition hover:bg-neutral-50"
+            >
+              {link === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              Create invite link
+            </button>
+          )}
+        </div>
 
         {error && <p className="mt-3 text-center text-sm text-rose-700">{error}</p>}
       </div>
