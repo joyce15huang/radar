@@ -3,14 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { X, Search, Check, CalendarDays, MapPin, Plus, AlignLeft, ArrowRight, Loader2, Car, Receipt, ListChecks } from "lucide-react";
+import { X, Search, Check, MapPin, Plus, AlignLeft, ArrowRight, Loader2, Car, Receipt, ListChecks } from "lucide-react";
 import { listFriendOptions } from "@/app/friends-actions";
 import { confirmSchedule } from "@/app/schedule-actions";
-import { createDirectEvent, createPoll } from "@/app/poll-actions";
+import { createDirectEvent, createPoll, searchProfiles } from "@/app/poll-actions";
 import { setEventModules } from "@/app/module-actions";
 import type { FriendOption } from "@/lib/friends";
 import { DateTimeField, type DTValue } from "./DateTimeField";
-import { clientTimeZone, isoFromLocal, formatWhen, localFromIso } from "@/lib/localDateTime";
+import { WhenPicker, type WhenValue } from "./WhenPicker";
+import { clientTimeZone, isoFromLocal, formatWhen, formatWhenRange, localFromIso } from "@/lib/localDateTime";
 
 const AVATAR_TONES = [
   "bg-fuchsia-700 text-white",
@@ -32,19 +33,6 @@ function dayOffset(n: number, tz: string): string {
   const d = new Date(Date.now() + n * 86_400_000).toISOString();
   return localFromIso(d, tz)?.date ?? d.slice(0, 10);
 }
-/** "Oct 22" for a YYYY-MM-DD picked from the calendar. */
-function shortDate(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  if (!y || !m || !d) return ymd;
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d, 12)));
-}
-function chipLabel(ymd: string, i: number): string {
-  if (i === 0) return "Today";
-  if (i === 1) return "Tomorrow";
-  const [y, m, d] = ymd.split("-").map(Number);
-  const wd = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d, 12)));
-  return `${wd} ${d}`;
-}
 
 /**
  * One composer for every new plan: type what it is, tap who's coming (nobody =
@@ -63,11 +51,9 @@ export function PlanComposer() {
   const [query, setQuery] = useState("");
 
   const [mode, setMode] = useState<"set" | "vote">("set");
-  const [date, setDate] = useState(days[0]);
-  const [clock, setClock] = useState("18:00");
-  const [allDay, setAllDay] = useState(false);
-  const time = allDay ? null : clock || null;
-  const customDate = !days.includes(date);
+  const [when, setWhen] = useState<WhenValue>({ date: days[0], start: "18:00", end: "20:00", allDay: false });
+  const date = when.date;
+  const time = when.allDay ? null : when.start;
   const [options, setOptions] = useState<DTValue[]>([
     { date: days[1], time: "19:00" },
     { date: days[2], time: "19:00" },
@@ -102,15 +88,46 @@ export function PlanComposer() {
 
   const group = picked.length > 0;
   const voting = group && mode === "vote";
-  const pickedFriends = picked.map((id) => friends.find((f) => f.id === id)).filter(Boolean) as FriendOption[];
   const q = query.trim().toLowerCase().replace(/^@/, "");
-  const shown = friends.filter((f) => !q || f.username.toLowerCase().includes(q));
+  // Typing 2+ letters also finds people you're not friends with yet.
+  const [others, setOthers] = useState<FriendOption[]>([]);
+  const [strangersPicked, setStrangersPicked] = useState<FriendOption[]>([]);
+  useEffect(() => {
+    if (q.length < 2) {
+      setOthers([]);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(async () => {
+      const res = await searchProfiles(q).catch(() => []);
+      if (!live) return;
+      const ids = new Set(friends.map((f) => f.id));
+      setOthers(res.filter((m) => m.username && !ids.has(m.id)).map((m) => ({ id: m.id, username: m.username, email: m.email })));
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q, friends]);
+  const everyone = [...friends, ...strangersPicked];
+  const pickedFriends = picked.map((id) => everyone.find((f) => f.id === id)).filter(Boolean) as FriendOption[];
+  const friendIds = new Set(friends.map((f) => f.id));
+  const shown = [
+    ...friends.filter((f) => !q || f.username.toLowerCase().includes(q)),
+    ...strangersPicked.filter((f) => !q || f.username.toLowerCase().includes(q)),
+    ...others.filter((o) => !strangersPicked.some((s) => s.id === o.id)),
+  ];
 
-  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const toggle = (id: string) => {
+    const stranger = others.find((o) => o.id === id);
+    if (stranger && !strangersPicked.some((s) => s.id === id)) setStrangersPicked((s) => [...s, stranger]);
+    setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  };
   const tone = (id: string) => AVATAR_TONES[Math.max(0, friends.findIndex((f) => f.id === id)) % AVATAR_TONES.length];
 
   const startsAt = date ? isoFromLocal(date, time, tz) : null;
-  const whenText = startsAt ? formatWhen(startsAt, tz, time !== null) : "";
+  const endsAt = time && date ? isoFromLocal(date, when.end, tz) : null;
+  const whenText = startsAt ? formatWhenRange(startsAt, endsAt, tz, time !== null) : "";
   const perPerson = parseFloat(cost);
   const feeCents = showCost && Number.isFinite(perPerson) && perPerson > 0 ? Math.round(perPerson * 100) : null;
 
@@ -167,6 +184,7 @@ export function PlanComposer() {
           title: title.trim(),
           startsAt,
           hasTime: time !== null,
+          endsAt: endsAt ?? undefined,
           location: location.trim() || undefined,
           note: note.trim() || undefined,
         },
@@ -187,6 +205,7 @@ export function PlanComposer() {
       eventTime: whenText,
       startsAt,
       hasTime: time !== null,
+      endsAt,
       recipientIds: picked,
     });
     setSending(false);
@@ -194,11 +213,6 @@ export function PlanComposer() {
     if (extras.length > 0) await setEventModules(res.eventId, extras);
     router.push(`/event/${res.eventId}`);
   }
-
-  const chip = (on: boolean) =>
-    `h-[42px] rounded-xl px-3.5 text-[14px] font-semibold transition active:scale-[0.97] ${
-      on ? "bg-neutral-900 text-white" : "bg-neutral-200/70 text-neutral-900 hover:bg-neutral-200"
-    }`;
 
   return (
     <div className="flex min-h-dvh flex-col">
@@ -234,7 +248,7 @@ export function PlanComposer() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search friends"
+                placeholder="Search friends or @username"
                 autoFocus
                 className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-neutral-400"
               />
@@ -266,10 +280,11 @@ export function PlanComposer() {
                   <span className={`w-full truncate text-center text-[12px] ${on ? "font-bold text-neutral-900" : "font-medium text-neutral-500"}`}>
                     {f.username}
                   </span>
+                  {!friendIds.has(f.id) && <span className="-mt-1 text-[10px] font-medium text-neutral-400">not a friend</span>}
                 </button>
               );
             })}
-            {!searching && friends.length > 0 && (
+            {!searching && (
               <button type="button" onClick={() => setSearching(true)} className="flex w-[58px] shrink-0 flex-col items-center gap-1.5">
                 <span className="flex h-[54px] w-[54px] items-center justify-center rounded-full bg-neutral-200/70">
                   <Search className="h-[19px] w-[19px] text-neutral-800" />
@@ -277,11 +292,7 @@ export function PlanComposer() {
                 <span className="text-[12px] font-medium text-neutral-500">Search</span>
               </button>
             )}
-            {friends.length === 0 && (
-              <Link href="/friends" className="text-sm font-medium text-neutral-600 underline underline-offset-4">
-                Add friends to invite them
-              </Link>
-            )}
+
           </div>
         </section>
 
@@ -289,23 +300,6 @@ export function PlanComposer() {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-[13px] font-semibold text-neutral-500">When</h2>
-            {group && (
-              <div className="inline-flex rounded-full bg-neutral-200/70 p-[3px]">
-                {(["set", "vote"] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMode(m)}
-                    aria-pressed={mode === m}
-                    className={`h-8 rounded-full px-3 text-[12px] font-semibold ${
-                      mode === m ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-500"
-                    }`}
-                  >
-                    {m === "set" ? "Set a time" : "Let them vote"}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           {voting ? (
@@ -334,73 +328,27 @@ export function PlanComposer() {
                   <Plus className="h-4 w-4" /> Add a time
                 </button>
               </div>
-              <p className="text-[13px] text-neutral-500">Only you see who&rsquo;s free — you pick the winner.</p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[13px] text-neutral-500">Only you see who&rsquo;s free — you pick the winner.</p>
+                <button type="button" onClick={() => setMode("set")} className="shrink-0 text-[13px] font-bold text-fuchsia-800">
+                  Pick one time
+                </button>
+              </div>
             </div>
           ) : (
             <>
-              {/* Day: a few quick picks + a calendar, one row */}
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 sm:-mx-6 sm:px-6">
-                {days.map((d, i) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setDate(d)}
-                    aria-pressed={date === d}
-                    className={`${chip(date === d)} shrink-0`}
-                  >
-                    {chipLabel(d, i)}
-                  </button>
-                ))}
-                <label
-                  className={`relative flex h-[42px] shrink-0 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-[14px] font-semibold transition ${
-                    customDate ? "bg-neutral-900 text-white" : "bg-neutral-200/70 text-neutral-900"
-                  }`}
-                >
-                  <CalendarDays className="h-[17px] w-[17px]" />
-                  {customDate && date ? shortDate(date) : <span className="sr-only">Pick a date</span>}
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => e.target.value && setDate(e.target.value)}
-                    onClick={(e) => (e.currentTarget as HTMLInputElement & { showPicker?: () => void }).showPicker?.()}
-                    aria-label="Pick a date"
-                    className="absolute inset-0 cursor-pointer opacity-0"
-                  />
-                </label>
-              </div>
-
-              {/* Time: an editable time + All day, one row */}
-              <div className="flex items-center gap-2">
-                <input
-                  type="time"
-                  value={clock}
-                  onChange={(e) => {
-                    setClock(e.target.value);
-                    setAllDay(false);
-                  }}
-                  aria-label="Time"
-                  className={`h-[42px] w-[132px] rounded-xl px-3 text-[15px] font-semibold outline-none transition ${
-                    allDay ? "bg-neutral-200/70 text-neutral-400" : "bg-white text-neutral-900 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setAllDay((v) => !v)}
-                  aria-pressed={allDay}
-                  className={chip(allDay)}
-                >
-                  All day
-                </button>
-              </div>
-              {group && (
-                <button
-                  type="button"
-                  onClick={() => setMode("vote")}
-                  className="inline-flex items-center gap-1.5 py-1 text-[14px] font-bold text-fuchsia-800"
-                >
-                  Not sure? Let them vote on a time <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.6} />
-                </button>
-              )}
+              <WhenPicker
+                value={when}
+                onChange={setWhen}
+                today={days[0]}
+                footerRight={
+                  group ? (
+                    <button type="button" onClick={() => setMode("vote")} className="text-[13px] font-bold text-fuchsia-800">
+                      Let them vote instead
+                    </button>
+                  ) : null
+                }
+              />
             </>
           )}
         </section>

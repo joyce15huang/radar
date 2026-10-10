@@ -116,6 +116,8 @@ export async function createDirectEvent(input: {
   eventTime: string;
   startsAt?: string | null;
   hasTime?: boolean;
+  /** Optional end time (ISO), kept on each card for display. */
+  endsAt?: string | null;
   recipientIds: string[];
 }): Promise<EventResult> {
   const actor = await getActor();
@@ -159,6 +161,7 @@ export async function createDirectEvent(input: {
     allowReinvite: "false",
   };
   if (input.startsAt) content.startsAt = input.startsAt;
+  if (input.endsAt) content.endsAt = input.endsAt;
   if (input.location?.trim()) content.location = input.location.trim();
   if (input.note?.trim()) content.note = input.note.trim();
   if (feeCents) content.fee = String(feeCents);

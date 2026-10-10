@@ -25,5 +25,6 @@ export async function GET(request: Request) {
     if (!error) return NextResponse.redirect(`${origin}${next}`);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+  const back = next !== "/calendar" ? `&next=${encodeURIComponent(next)}` : "";
+  return NextResponse.redirect(`${origin}/login?error=auth_failed${back}`);
 }

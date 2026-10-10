@@ -8,6 +8,8 @@ import { startOfTodayISO, APP_TZ } from "@/lib/time";
 import { isPastCard } from "@/lib/calendarSort";
 import { busyFromCard, type BusyInterval } from "@/lib/conflicts";
 import { getActor } from "@/lib/actor";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { friendIdSet, isStrangerInvite } from "@/lib/friendIds";
 import type { DigestCardData } from "@/lib/types";
 
 // PIVOT PHASE 2: the feed reads the active persona's real `pending` cards.
@@ -76,7 +78,10 @@ export default async function TodayPage() {
     if (row.type === "calendar_radar" && !c.sourceUrl) return false;
     return true;
   });
-  const mapped = [...handled, ...(rows ?? [])]
+  // Invites from people you're not friends with wait in the Inbox instead.
+  const friends = await friendIdSet(createAdminClient(), actorId);
+  const pendingRows = (rows ?? []).filter((r) => !isStrangerInvite(r as CardRow, actorId, friends));
+  const mapped = [...handled, ...pendingRows]
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)
     .filter((c) => !isPastCard(c, nowMs, APP_TZ));

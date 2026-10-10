@@ -149,3 +149,114 @@ export function EventFeePanel({
     </div>
   );
 }
+
+/**
+ * The fee as a row inside the event's date/place card: "$20 per person" with
+ * who to pay; guests also get Pay / Zelle / Mark as paid. No real money moves.
+ */
+export function FeeRow({
+  cardId,
+  feeCents,
+  venmoId,
+  zelleId,
+  paymentLink,
+  feePaid,
+  isHost,
+  hostName,
+  note = "",
+}: {
+  cardId?: string;
+  feeCents: number;
+  venmoId: string | null;
+  zelleId: string | null;
+  paymentLink: string | null;
+  feePaid: boolean;
+  isHost: boolean;
+  hostName?: string;
+  note?: string;
+}) {
+  const [paid, setPaid] = useState(feePaid);
+  const [pending, setPending] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (feeCents <= 0) return null;
+
+  const via = venmoId ? "Venmo" : zelleId ? "Zelle" : "";
+  const who = hostName || "the host";
+  const line = isHost
+    ? via
+      ? `Guests pay you on ${via}${venmoId ? ` @${venmoId}` : ""}`
+      : "Guests pay you directly"
+    : via
+      ? `Pay ${who} on ${via}`
+      : `Pay ${who} directly`;
+  const legacyHref =
+    !venmoId && !zelleId && paymentLink ? (/^https?:\/\//i.test(paymentLink) ? paymentLink : `https://${paymentLink}`) : null;
+
+  async function toggle() {
+    if (!cardId || pending) return;
+    const next = !paid;
+    setPaid(next);
+    setPending(true);
+    const res = await setFeePaid(cardId, next);
+    setPending(false);
+    if (!res.ok) setPaid(!next);
+  }
+  async function copyZelle() {
+    if (!zelleId) return;
+    try {
+      await navigator.clipboard.writeText(zelleId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+
+  const chip = "inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-[13px] font-semibold transition";
+
+  return (
+    <div className="px-4 py-3.5">
+      <div className="flex items-center gap-3.5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-[20px] font-bold text-amber-800">$</span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[15px] font-semibold text-neutral-900">{money(feeCents)} per person</p>
+          <p className="truncate text-[13px] text-neutral-600">{line}</p>
+        </div>
+        {!isHost && paid && (
+          <span className="inline-flex h-[26px] shrink-0 items-center gap-1 rounded-lg bg-sky-100 px-2.5 text-[12px] font-bold text-sky-800">
+            <Check className="h-3.5 w-3.5" strokeWidth={2.6} /> Paid
+          </span>
+        )}
+      </div>
+
+      {!isHost && (
+        <div className="mt-3 flex flex-wrap gap-2 pl-[62px]">
+          {venmoId && !paid && (
+            <a href={venmoUrl(venmoId, feeCents, note)} target="_blank" rel="noopener noreferrer" className={`${chip} bg-[#008CFF] text-white hover:brightness-110`}>
+              Pay on Venmo <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+          {legacyHref && !paid && (
+            <a href={legacyHref} target="_blank" rel="noopener noreferrer" className={`${chip} bg-neutral-900 text-white`}>
+              Pay {who} <ExternalLink className="h-3.5 w-3.5" />
+            </a>
+          )}
+          {zelleId && !paid && (
+            <button type="button" onClick={copyZelle} className={`${chip} bg-neutral-100 text-neutral-800 hover:bg-neutral-200`}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? "Copied" : `Zelle ${zelleId}`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={toggle}
+            disabled={pending || !cardId}
+            className={`${chip} ${paid ? "text-neutral-500 hover:bg-neutral-100" : "bg-neutral-100 text-neutral-800 hover:bg-neutral-200"} disabled:opacity-60`}
+          >
+            {paid ? "Undo paid" : "Mark as paid"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

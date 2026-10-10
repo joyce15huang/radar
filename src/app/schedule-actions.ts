@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { serverTimeZone } from "@/lib/tz";
 import { parseEvents, nowContext, type ParsedEvent } from "@/lib/parse/schedule";
-import { formatWhen } from "@/lib/localDateTime";
+import { formatWhen, formatWhenRange } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 
 export interface ParseScheduleResult {
@@ -45,6 +45,8 @@ export interface ConfirmScheduleItem {
   /** ISO chosen on the calendar (the source of truth). */
   startsAt: string;
   hasTime: boolean;
+  /** Optional end (same day); shown as "7:00 PM – 9:00 PM". */
+  endsAt?: string;
   location?: string;
   note?: string;
 }
@@ -68,8 +70,9 @@ export async function confirmSchedule(
 
   const tz = await serverTimeZone();
   const rows = clean.map((it) => {
-    const when = formatWhen(it.startsAt, tz, it.hasTime);
+    const when = formatWhenRange(it.startsAt, it.endsAt, tz, it.hasTime);
     const content: Record<string, string> = { time: when, startsAt: it.startsAt };
+    if (it.endsAt && it.hasTime) content.endsAt = it.endsAt;
     if (it.location?.trim()) content.location = it.location.trim();
     if (it.note?.trim()) content.details = it.note.trim();
     return {

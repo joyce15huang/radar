@@ -57,7 +57,7 @@ export function ProfileForm({ initial }: { initial: ProfileInitial }) {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Website"><input name="website" defaultValue={initial.website} placeholder="sfsocial.club" className={inputCls} /></Field>
-        <Field label="Instagram"><input name="instagram" defaultValue={initial.instagram} placeholder="@handle" className={inputCls} /></Field>
+        <Field label="Instagram"><input name="instagram" defaultValue={initial.instagram} placeholder="@handle — shows next to your name on guest lists" autoCapitalize="none" className={inputCls} /></Field>
       </div>
 
       <div className="flex items-center gap-3">

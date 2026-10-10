@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X, Loader2 } from "lucide-react";
+import { X, Loader2, Car, Receipt, ListChecks } from "lucide-react";
 import { addEventModule, removeEventModule } from "@/app/module-actions";
 
 const LABELS: Record<string, string> = {
@@ -11,12 +11,7 @@ const LABELS: Record<string, string> = {
   tasks: "Tasks",
 };
 const ALL = ["carpool", "expenses", "tasks"] as const;
-
-/** Natural-language list: "carpool", "carpool or tasks", "carpool, expenses or tasks". */
-function orList(items: string[]): string {
-  const low = items.map((m) => LABELS[m].toLowerCase());
-  return low.length <= 1 ? low.join("") : `${low.slice(0, -1).join(", ")} or ${low[low.length - 1]}`;
-}
+const ICONS = { carpool: Car, expenses: Receipt, tasks: ListChecks } as const;
 
 /** Host-only nudge: "Add carpool, expenses or tasks?" with a chip per missing section. */
 export function AddSectionBar({ eventId, modules }: { eventId: string; modules: string[] }) {
@@ -34,23 +29,27 @@ export function AddSectionBar({ eventId, modules }: { eventId: string; modules: 
   }
 
   return (
-    <div className="rounded-2xl bg-fuchsia-50 p-4">
-      <p className="text-[15px] font-semibold text-neutral-900">Add {orList([...missing])}?</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {missing.map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => add(m)}
-            disabled={!!busy}
-            className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-white px-3.5 text-sm font-semibold text-neutral-800 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition hover:bg-neutral-50 disabled:opacity-60"
-          >
-            {busy === m ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            {LABELS[m]}
-          </button>
-        ))}
+    <section className="rounded-[18px] bg-white p-4 shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
+      <h2 className="text-[16px] font-bold text-neutral-900">Add to this plan</h2>
+      <p className="mt-0.5 text-[13px] text-neutral-500">Only shows up for guests once you add it.</p>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {missing.map((m) => {
+          const Icon = ICONS[m];
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => add(m)}
+              disabled={!!busy}
+              className="flex h-[72px] flex-col items-center justify-center gap-1.5 rounded-[14px] border-[1.5px] border-dashed border-neutral-300 text-[13px] font-semibold text-neutral-900 transition hover:border-neutral-400 hover:bg-neutral-50 disabled:opacity-60"
+            >
+              {busy === m ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" strokeWidth={1.9} />}
+              {LABELS[m]}
+            </button>
+          );
+        })}
       </div>
-    </div>
+    </section>
   );
 }
 

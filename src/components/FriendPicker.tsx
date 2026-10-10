@@ -1,14 +1,15 @@
 "use client";
 
-import { useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { searchProfiles } from "@/app/poll-actions";
 import { X, Users } from "lucide-react";
 import type { FriendOption } from "@/lib/friends";
 
 /**
  * Instagram-style recipient picker: type to filter your accepted friends by
  * @username, pick from the dropdown, and each choice becomes a removable chip.
- * Friends-only by design — you can only invite people you're connected to.
+ * Friends come first; typing 2+ letters also finds other people on the app
+ * ("Not friends yet") — their invite waits in the recipient's Inbox.
  */
 export function FriendPicker({
   friends,
@@ -31,8 +32,35 @@ export function FriendPicker({
     .filter((f) => (q ? f.username.toLowerCase().includes(q) : true))
     .sort((a, b) => a.username.localeCompare(b.username));
 
-  const showList = focused && friends.length > 0 && available.length > 0;
-  const showNoMatch = focused && friends.length > 0 && available.length === 0 && q.length > 0;
+  // Other people on the app matching the query (not friends, not already picked).
+  const [others, setOthers] = useState<FriendOption[]>([]);
+  useEffect(() => {
+    if (q.length < 2) {
+      setOthers([]);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(async () => {
+      const res = await searchProfiles(q).catch(() => []);
+      if (!live) return;
+      const friendIds = new Set(friends.map((f) => f.id));
+      setOthers(
+        res
+          .filter((m) => m.username && !friendIds.has(m.id))
+          .map((m) => ({ id: m.id, username: m.username, email: m.email })),
+      );
+    }, 200);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [q, friends]);
+  const strangers = others.filter((o) => !selectedIds.has(o.id));
+  const friendIdSet = new Set(friends.map((f) => f.id));
+  const options = [...available, ...strangers];
+
+  const showList = focused && options.length > 0;
+  const showNoMatch = focused && options.length === 0 && q.length > 1;
 
   function add(f: FriendOption) {
     onChange([...selected, f]);
@@ -48,12 +76,12 @@ export function FriendPicker({
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlight((h) => Math.min(h + 1, available.length - 1));
+      setHighlight((h) => Math.min(h + 1, options.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlight((h) => Math.max(h - 1, 0));
     } else if (e.key === "Enter") {
-      const pick = available[highlight];
+      const pick = options[highlight];
       if (pick) {
         e.preventDefault();
         add(pick);
@@ -66,7 +94,7 @@ export function FriendPicker({
   return (
     <div>
       <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-        Your friends
+        To
       </span>
 
       {/* Tag-style input box */}
@@ -80,6 +108,7 @@ export function FriendPicker({
             className="inline-flex items-center gap-1 rounded-full bg-neutral-100 py-1 pl-2.5 pr-1 text-xs font-medium text-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
           >
             @{f.username}
+            {!friendIdSet.has(f.id) && <span className="text-neutral-400">· not a friend</span>}
             <button
               type="button"
               onClick={(e) => {
@@ -107,26 +136,21 @@ export function FriendPicker({
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          disabled={friends.length === 0}
-          placeholder={selected.length === 0 ? "Search your friends…" : ""}
+          placeholder={selected.length === 0 ? "Search friends or @username…" : ""}
           className="min-w-[8rem] flex-1 bg-transparent px-1 py-1 text-sm text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed dark:text-neutral-100 dark:placeholder:text-neutral-600"
         />
       </div>
 
-      {friends.length === 0 && (
-        <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
-          You have no friends yet.{" "}
-          <Link href="/me?tab=friends" className="font-medium underline hover:text-neutral-600 dark:hover:text-neutral-300">
-            Add some first
-          </Link>{" "}
-          to invite them.
-        </p>
-      )}
 
       {showList && (
         <ul className="mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          {available.map((f, i) => (
+          {options.map((f, i) => (
             <li key={f.id}>
+              {i === available.length && (
+                <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                  Not friends yet
+                </p>
+              )}
               <button
                 type="button"
                 // onMouseDown fires before the input's onBlur, so the pick lands

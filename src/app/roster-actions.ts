@@ -60,20 +60,27 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
 
   const ids = Array.from(new Set(rows.map((r) => r.user_id as string)));
   const nameById = new Map<string, string>();
+  const extraById = new Map<string, { instagram?: string; displayName?: string }>();
   if (ids.length > 0) {
     const { data: profs } = await admin
       .from("profiles")
-      .select("id, username, email")
+      .select("id, username, email, display_name, links")
       .in("id", ids);
     for (const p of profs ?? []) {
       const username = (p.username as string) || "";
       const email = (p.email as string) || "";
       nameById.set(p.id as string, username ? `@${username}` : nameFromEmail(email));
+      const links = (p.links ?? {}) as { instagram?: string };
+      extraById.set(p.id as string, {
+        instagram: links.instagram?.replace(/^@/, "") || undefined,
+        displayName: (p.display_name as string) || undefined,
+      });
     }
   }
 
   const going: Attendee[] = [];
   const invited: Attendee[] = [];
+  const declined: Attendee[] = [];
   const seen = new Set<string>();
   let paidCount = 0;
   for (const r of rows) {
@@ -85,9 +92,10 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
     const content = (r.content ?? {}) as Record<string, string | null>;
     const feePaid = content.feePaid === "true";
     if (feePaid) paidCount += 1;
-    if (r.status === "accepted") going.push({ id: uid, name, status: "going", isHost, feePaid });
-    else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost, feePaid });
-    // dismissed = declined → not shown
+    const extra = extraById.get(uid) ?? {};
+    if (r.status === "accepted") going.push({ id: uid, name, status: "going", isHost, feePaid, ...extra });
+    else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost, feePaid, ...extra });
+    else if (r.status === "dismissed") declined.push({ id: uid, name, status: "declined", isHost, feePaid, ...extra });
   }
 
   going.sort((a, b) => Number(b.isHost) - Number(a.isHost) || a.name.localeCompare(b.name));
@@ -100,6 +108,7 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
     invited,
     goingCount: going.length,
     invitedCount: invited.length,
+    declined,
     hasFee,
     paidCount,
   };

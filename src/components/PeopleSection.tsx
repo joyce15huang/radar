@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Send } from "lucide-react";
-import { GuestFaces } from "./GuestFaces";
+import { GuestList } from "./GuestList";
 import { InviteComposer } from "./InviteComposer";
 
-/** The event page's Guests area: the section header (with the Invite control
- *  aligned to it) + the roster, kept together in one place. */
+/** The event page's Guests area: header (counts + Invite) and the guest list. */
 export function PeopleSection({
   eventId,
   eventTitle,
@@ -21,24 +20,34 @@ export function PeopleSection({
 }) {
   const router = useRouter();
   const [inviting, setInviting] = useState(false);
+  const [rev, setRev] = useState(0);
+  const [counts, setCounts] = useState<{ going: number; invited: number } | null>(null);
+  const onCounts = useCallback((going: number, invited: number) => setCounts({ going, invited }), []);
 
   return (
-    <section className="space-y-2">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-[17px] font-semibold text-neutral-900">Guests</h2>
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">
+          Guests
+          {counts && (
+            <span className="ml-1.5 text-[14px] font-medium text-neutral-500">
+              {counts.going} going{counts.invited > 0 ? ` · ${counts.invited} invited` : ""}
+            </span>
+          )}
+        </h2>
         {canInvite && (
           <button
             type="button"
             onClick={() => setInviting(true)}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-neutral-200 bg-white px-3.5 text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50"
+            className="inline-flex h-[38px] items-center gap-1.5 rounded-xl bg-fuchsia-700 px-3.5 text-sm font-semibold text-white transition hover:bg-fuchsia-800"
           >
             <Send className="h-4 w-4" /> Invite
           </button>
         )}
       </div>
 
-      <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-        <GuestFaces eventId={eventId} />
+      <div className="overflow-hidden rounded-[18px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
+        <GuestList key={rev} eventId={eventId} canInvite={canInvite} onCounts={onCounts} />
       </div>
 
       {inviting && (
@@ -47,6 +56,7 @@ export function PeopleSection({
           target={{ kind: "event", eventId }}
           onClose={() => {
             setInviting(false);
+            setRev((n) => n + 1);
             router.refresh();
           }}
         />

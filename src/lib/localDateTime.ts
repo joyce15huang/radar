@@ -106,3 +106,22 @@ export function weekdayOf(date: string): string {
 export function labelHasTime(label: string): boolean {
   return /·/.test(label) || /\d{1,2}:\d{2}/.test(label) || /\b\d{1,2}\s?(am|pm)\b/i.test(label);
 }
+
+/**
+ * "Sat, Oct 10 · 7:00 PM – 9:00 PM" when an end time is known (same day),
+ * otherwise exactly `formatWhen`.
+ */
+export function formatWhenRange(
+  startIso: string | null | undefined,
+  endIso: string | null | undefined,
+  tz: string,
+  hasTime: boolean,
+): string {
+  const base = formatWhen(startIso, tz, hasTime);
+  if (!hasTime || !startIso || !endIso) return base;
+  const s = Date.parse(startIso);
+  const e = Date.parse(endIso);
+  if (Number.isNaN(e) || e <= s) return base;
+  const end = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" }).format(new Date(e));
+  return `${base} – ${end}`;
+}

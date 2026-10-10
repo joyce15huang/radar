@@ -7,6 +7,8 @@ import { EventFormFab } from "@/components/EventFormFab";
 import { rowToCard, CARD_SELECT, type CardRow } from "@/lib/cardMapping";
 import { startKey, isPastCard } from "@/lib/calendarSort";
 import { getActor } from "@/lib/actor";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { friendIdSet, isStrangerInvite } from "@/lib/friendIds";
 import type { DigestCardData } from "@/lib/types";
 
 export default async function CalendarPage() {
@@ -29,7 +31,10 @@ export default async function CalendarPage() {
   // Accepted items, plus invites friends sent you that you haven't answered yet
   // (shown tentatively with Accept / Decline). Unanswered invites to events that
   // already happened are left out.
+  // Invites from people you're not friends with wait in the Inbox instead.
+  const friends = await friendIdSet(createAdminClient(), actorId);
   const all = (rows ?? [])
+    .filter((r) => !isStrangerInvite(r as CardRow, actorId, friends))
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)
     .filter(

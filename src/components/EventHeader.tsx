@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Check, Plus, Loader2, Users, Crown, MapPin, CalendarClock, Link2, ArrowUpRight } from "lucide-react";
 import { updateHostEvent, toggleReinvite } from "@/app/event-actions";
 import { setEventModules } from "@/app/module-actions";
-import { EventFeePanel } from "./EventFeePanel";
+import { FeeRow } from "./EventFeePanel";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { clientTimeZone, isoFromLocal, localFromIso, formatWhen } from "@/lib/localDateTime";
 
@@ -261,8 +261,8 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
         </p>
       </div>
 
-      {(data.when || data.location) && (
-        <div className="divide-y divide-neutral-100 rounded-[20px] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+      {(data.when || data.location || data.feeCents > 0) && (
+        <div className="divide-y divide-neutral-100 rounded-[20px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)]">
           {data.when && (
             <div className="flex items-center gap-3.5 px-4 py-3.5">
               {tile ? (
@@ -300,21 +300,22 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
               )}
             </div>
           )}
+          {data.feeCents > 0 && (
+            <FeeRow
+              cardId={data.cardId}
+              feeCents={data.feeCents}
+              venmoId={data.venmoId || null}
+              zelleId={data.zelleId || null}
+              paymentLink={data.paymentLink || null}
+              feePaid={data.feePaid}
+              isHost={data.isHost}
+              hostName={data.hostName}
+              note={data.title}
+            />
+          )}
         </div>
       )}
 
-      {data.feeCents > 0 && (
-        <EventFeePanel
-          cardId={data.cardId}
-          feeCents={data.feeCents}
-          venmoId={data.venmoId || null}
-          zelleId={data.zelleId || null}
-          paymentLink={data.paymentLink || null}
-          feePaid={data.feePaid}
-          isHost={data.isHost}
-          note={data.title}
-        />
-      )}
 
       {data.displayNote && (
         <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
