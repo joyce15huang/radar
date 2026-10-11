@@ -71,7 +71,7 @@ function senderLine(card: DigestCardData): { name: string; verb: string } | null
     case "time_poll":
       return { name: card.senderName, verb: "is finding a time" };
     case "event_update":
-      return { name: card.hostName, verb: "updated the plan" };
+      return { name: card.hostName, verb: card.changeSummary === "Plan canceled" ? "canceled the plan" : "updated the plan" };
     case "broadcast_bundle":
       return { name: card.senderName, verb: `posted ${card.count} events` };
     default:

@@ -537,3 +537,81 @@ export async function setFeePaid(cardId: string, paid: boolean): Promise<FeePaid
   revalidatePath("/calendar");
   return { ok: true };
 }
+
+/** How many people besides the host are on a plan (going or still invited). */
+export async function planGuestCount(eventId: string): Promise<number> {
+  const actor = await getActor();
+  if (!actor) return 0;
+  const admin = createAdminClient();
+  const { data: ev } = await admin.from("events").select("creator_id").eq("id", eventId).maybeSingle();
+  if (!ev) return 0;
+  const { count } = await admin
+    .from("cards")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", eventId)
+    .eq("type", "social_invite")
+    .neq("user_id", ev.creator_id as string)
+    .in("status", ["pending", "accepted", "saved"]);
+  return count ?? 0;
+}
+
+/**
+ * Host-only: cancel a plan for everyone. Takes it off every calendar (and any
+ * unanswered invite), and leaves each guest a "Plan canceled" note on Today.
+ */
+export async function cancelEvent(eventId: string): Promise<{ ok: boolean; error?: string; notified?: number }> {
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const { actorId } = actor;
+
+  const admin = createAdminClient();
+  const { data: eventData } = await admin.from("events").select(EVENT_COLS).eq("id", eventId).maybeSingle();
+  const event = (eventData as EventRow) ?? null;
+  if (!event) return { ok: false, error: "That plan no longer exists." };
+  if (event.creator_id !== actorId) return { ok: false, error: "Only the host can cancel this plan." };
+
+  const { data: cards } = await admin
+    .from("cards")
+    .select("id, user_id, status")
+    .eq("event_id", eventId)
+    .eq("type", "social_invite");
+  const guestIds = [
+    ...new Set(
+      (cards ?? [])
+        .filter((c) => c.user_id !== actorId && c.status !== "dismissed")
+        .map((c) => c.user_id as string),
+    ),
+  ];
+
+  // Off every calendar / inbox, host's included.
+  await admin.from("cards").update({ status: "dismissed" }).eq("event_id", eventId).eq("type", "social_invite");
+  // Any unread "details updated" notes are moot now.
+  await admin.from("cards").delete().eq("event_id", eventId).eq("type", "event_update").eq("status", "pending");
+
+  if (guestIds.length) {
+    const hostName = await profileName(admin, actorId);
+    const content: Record<string, string> = {
+      hostName,
+      eventTitle: event.title ?? "Plan",
+      eventTime: event.event_time ?? "",
+      changeSummary: "Plan canceled",
+      canceled: "true",
+    };
+    await admin.from("cards").insert(
+      guestIds.map((rid) => ({
+        user_id: rid,
+        sender_id: actorId,
+        type: "event_update",
+        title: event.title ?? "Plan",
+        content,
+        status: "pending",
+        event_id: eventId,
+      })),
+    );
+  }
+
+  revalidatePath("/today");
+  revalidatePath("/calendar");
+  revalidatePath("/inbox");
+  return { ok: true, notified: guestIds.length };
+}

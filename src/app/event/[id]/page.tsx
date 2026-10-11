@@ -283,7 +283,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
         )}
         {isHost && myCard?.id && (
           <div className="mt-10">
-            <RemoveFromCalendar cardId={myCard.id as string} />
+            <RemoveFromCalendar cardId={myCard.id as string} eventId={id} hasGuests={hasGuests} />
           </div>
         )}
       </div>
