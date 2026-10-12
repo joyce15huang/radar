@@ -20,9 +20,26 @@ export async function updateCardStatus(id: string, status: CardStatus): Promise<
   // Saying Going / Can't go on a plan respects its guest limit + waitlist.
   if (status === "accepted" || status === "dismissed") {
     const admin = createAdminClient();
-    const { data: card } = await admin.from("cards").select("type, user_id, event_id").eq("id", id).maybeSingle();
+    const { data: card } = await admin.from("cards").select("type, user_id, event_id, content").eq("id", id).maybeSingle();
     if (card && card.user_id === actor.actorId && card.type === "social_invite" && card.event_id) {
+      const content = (card.content ?? {}) as Record<string, string | null>;
+      if (content.maybe) {
+        const { maybe: _drop, ...rest } = content;
+        void _drop;
+        await admin.from("cards").update({ content: rest }).eq("id", id);
+      }
       const res = await applyRsvp(admin, id, status === "accepted");
+      // Answering a team game clears any "Are you in?" nudge still on Today.
+      if (content.teamId) {
+        await admin
+          .from("cards")
+          .delete()
+          .eq("event_id", card.event_id as string)
+          .eq("user_id", actor.actorId)
+          .eq("type", "event_update")
+          .eq("status", "pending")
+          .eq("content->>nudge", "true");
+      }
       revalidatePath("/calendar");
       return res;
     }

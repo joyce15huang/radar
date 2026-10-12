@@ -17,6 +17,8 @@ import { AddSectionBar } from "@/components/SectionControls";
 import { EventPhotos } from "@/components/EventPhotos";
 import { RemoveFromCalendar } from "@/components/RemoveFromCalendar";
 import { capInfo } from "@/lib/capacity";
+import { getGameHeadcount } from "@/app/team-actions";
+import { TeamGamePanel } from "@/components/team/TeamGamePanel";
 import type { ViewerPhoto } from "@/components/PhotoViewer";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
@@ -66,11 +68,15 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   const isHost = ev.creator_id === actorId;
 
   // Authorize: host, or someone who holds an invite card for this event.
+  // (Only the invite card — "details updated" / nudge notes share the event_id.)
   const { data: myCard } = await admin
     .from("cards")
     .select("id, status, content")
     .eq("event_id", id)
     .eq("user_id", actorId)
+    .eq("type", "social_invite")
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (!isHost && !myCard) notFound();
 
@@ -84,6 +90,8 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   const allowReinvite = ev.allow_reinvite ?? false;
   // Guest limit + waitlist (no limit until migration 0041 runs).
   const cap = await capInfo(admin, id);
+  // Team game/practice: In/Maybe/Out + headcount replace the RSVP and guest list.
+  const team = await getGameHeadcount(id);
   const myWaitIdx = myCard ? cap.waitlisted.findIndex((w) => w.cardId === myCard.id) : -1;
   const rsvpStatus: "accepted" | "pending" | "waitlisted" | "none" =
     myCard?.status === "accepted"
@@ -283,7 +291,8 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
           <>
             <EventHeader data={headerData} />
             <div className="space-y-8">
-              {isGuest && (
+              {team && <TeamGamePanel eventId={id} data={team} />}
+              {isGuest && !team && (
                 <EventActions
                   data={{
                     cardId: myCard?.id as string | undefined,
@@ -297,7 +306,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                   }}
                 />
               )}
-              {people}
+              {!team && people}
               {isHost && <AddSectionBar eventId={id} modules={modules} hasGuests={hasGuests} />}
               {hasMod("carpool") && <CarpoolSection eventId={id} canRemove={isHost} />}
               {hasMod("tasks") && <TaskSection eventId={id} canRemove={isHost} />}

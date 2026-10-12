@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Users } from "lucide-react";
 import { serverTimeZone } from "@/lib/tz";
 import { TabNav } from "@/components/TabNav";
 import { InstallPrompt } from "@/components/InstallPrompt";
@@ -63,9 +65,17 @@ export default async function CalendarPage() {
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-44 pt-6 sm:px-6 sm:pt-10">
         <TabNav />
         <InstallPrompt />
-        <header className="mb-4">
-          <p className="text-[13px] font-medium text-neutral-500">{monthLabel}</p>
-          <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">Calendar</h1>
+        <header className="mb-4 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[13px] font-medium text-neutral-500">{monthLabel}</p>
+            <h1 className="text-[30px] font-bold leading-tight tracking-tight text-neutral-900">Calendar</h1>
+          </div>
+          <Link
+            href="/teams"
+            className="mb-1 inline-flex h-10 items-center gap-1.5 rounded-full bg-white px-3.5 text-[14px] font-semibold text-neutral-900 shadow-[0_4px_14px_rgba(80,50,35,0.08)] transition hover:bg-neutral-50"
+          >
+            <Users className="h-4 w-4" strokeWidth={2.2} /> Teams
+          </Link>
         </header>
         <CalendarView upcoming={upcoming} past={past} tz={tz} viewerId={actorId} />
       </div>

@@ -46,8 +46,8 @@ export async function updateSession(request: NextRequest) {
   // credentials) — gating them broke "Install app".
   const isPwaAsset =
     path === "/manifest.webmanifest" || path === "/sw.js" || path === "/offline.html" || path === "/robots.txt";
-  // Short invite links preview publicly so new people can see what they're joining.
-  const isInviteLink = path.startsWith("/i/");
+  // Short invite links (events /i/, teams /t/) preview publicly so new people can see what they're joining.
+  const isInviteLink = path.startsWith("/i/") || path.startsWith("/t/");
   const isPublic = path.startsWith("/login") || isAuthOrInternal || isPwaAsset || isInviteLink;
 
   if (!user && !isPublic) {

@@ -10,6 +10,7 @@ import { busyFromCard, type BusyInterval } from "@/lib/conflicts";
 import { getActor } from "@/lib/actor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { friendIdSet, isStrangerInvite } from "@/lib/friendIds";
+import { headcountsForEvents } from "@/app/team-actions";
 import type { DigestCardData } from "@/lib/types";
 
 // PIVOT PHASE 2: the feed reads the active persona's real `pending` cards.
@@ -84,12 +85,31 @@ export default async function TodayPage() {
     (r) =>
       !isStrangerInvite(r as CardRow, actorId, friends) &&
       // Already answered "Going" and waiting for a spot — lives on the Calendar.
-      !((r.content ?? {}) as Record<string, unknown>).waitlistedAt,
+      !((r.content ?? {}) as Record<string, unknown>).waitlistedAt &&
+      // Already answered "Maybe" on a team game — it's on the Calendar; no need to ask again.
+      ((r.content ?? {}) as Record<string, unknown>).maybe !== "true" &&
+      // A whole season arrives at once — only this week's team events come to Today;
+      // the rest wait on the Calendar and the team page.
+      !isLaterTeamEvent(r as CardRow, nowMs),
   );
   const mapped = [...handled, ...pendingRows]
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)
     .filter((c) => !isPastCard(c, nowMs, APP_TZ));
+  // Team games show their live headcount ("6 of 8 in").
+  const teamEventIds = mapped
+    .filter((c) => c.type === "social_invite" && c.teamId && c.eventId)
+    .map((c) => (c as Extract<DigestCardData, { type: "social_invite" }>).eventId as string);
+  if (teamEventIds.length) {
+    const counts = await headcountsForEvents([...new Set(teamEventIds)]);
+    for (const c of mapped) {
+      if (c.type !== "social_invite" || !c.eventId || !counts[c.eventId]) continue;
+      c.teamIn = counts[c.eventId].in;
+      c.teamMin = counts[c.eventId].min;
+      if (counts[c.eventId].teamName) c.teamName = counts[c.eventId].teamName;
+    }
+  }
+
   // Anti-flood: collapse multiple broadcasts from one source into one deck card.
   const cards = bundleBroadcasts(mapped);
 
@@ -127,6 +147,17 @@ export default async function TodayPage() {
       </div>
     </main>
   );
+}
+
+const TEAM_TODAY_WINDOW_MS = 7 * 86_400_000;
+
+/** A team game/practice more than a week out. */
+function isLaterTeamEvent(row: CardRow, nowMs: number): boolean {
+  if (row.type !== "social_invite") return false;
+  const c = (row.content ?? {}) as Record<string, unknown>;
+  if (!c.teamId || typeof c.startsAt !== "string") return false;
+  const t = Date.parse(c.startsAt);
+  return !Number.isNaN(t) && t - nowMs > TEAM_TODAY_WINDOW_MS;
 }
 
 /**

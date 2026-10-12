@@ -45,7 +45,8 @@ export async function listInboxInvites(): Promise<InboxInvite[]> {
     .limit(50);
   const invites = (rows ?? []).filter((r) => {
     const c = r.content as Record<string, string> | null;
-    return c?.broadcast !== "true" && !c?.waitlistedAt;
+    // Team games live on the team page, Today, and Calendar — not the Inbox.
+    return c?.broadcast !== "true" && !c?.waitlistedAt && !c?.teamId;
   });
   if (invites.length === 0) return [];
 
@@ -100,7 +101,7 @@ export async function inboxCount(): Promise<number> {
     ]);
     const invites = (inv ?? []).filter((r) => {
       const c = r.content as Record<string, string> | null;
-      return c?.broadcast !== "true" && !c?.waitlistedAt;
+      return c?.broadcast !== "true" && !c?.waitlistedAt && !c?.teamId;
     }).length;
     return invites + (reqs ?? 0);
   } catch {

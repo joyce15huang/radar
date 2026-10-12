@@ -86,6 +86,14 @@ export interface SocialInviteCard extends CardBase {
   broadcast?: boolean;
   /** The sender's profile id (for grouping broadcasts + linking to them). */
   senderId?: string;
+  /** Team events: which team, game vs practice, and the live headcount. */
+  teamId?: string;
+  teamName?: string;
+  teamKind?: "game" | "practice";
+  teamIn?: number;
+  teamMin?: number | null;
+  /** Answered "Maybe" on a team event. */
+  maybe?: boolean;
 }
 
 export interface NewsScoutCard extends CardBase {
@@ -166,6 +174,8 @@ export interface EventUpdateCard extends CardBase {
   changeSummary?: string;
   /** The event this update refers to. */
   eventId?: string;
+  /** A captain's "Are you in?" nudge for a team game. */
+  nudge?: boolean;
 }
 
 export interface TimePollCard extends CardBase {

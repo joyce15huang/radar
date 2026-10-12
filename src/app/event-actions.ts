@@ -586,6 +586,8 @@ export async function cancelEvent(eventId: string): Promise<{ ok: boolean; error
 
   // Off every calendar / inbox, host's included.
   await admin.from("cards").update({ status: "dismissed" }).eq("event_id", eventId).eq("type", "social_invite");
+  // Team schedules + calendar feeds skip canceled events (column from 0043; ignored before it runs).
+  await admin.from("events").update({ canceled_at: new Date().toISOString() }).eq("id", eventId);
   // Any unread "details updated" notes are moot now.
   await admin.from("cards").delete().eq("event_id", eventId).eq("type", "event_update").eq("status", "pending");
 

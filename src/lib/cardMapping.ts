@@ -93,6 +93,10 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         broadcast: c.broadcast === "true",
         waitlisted: !!c.waitlistedAt,
         senderId: row.sender_id ?? undefined,
+        teamId: c.teamId ?? undefined,
+        teamName: c.teamName ?? undefined,
+        teamKind: c.teamKind === "practice" ? "practice" : c.teamKind === "game" ? "game" : undefined,
+        maybe: c.maybe === "true",
       };
 
     case "calendar_radar":
@@ -116,6 +120,7 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         location: c.location ?? undefined,
         changeSummary: c.changeSummary ?? undefined,
         eventId: row.event_id ?? undefined,
+        nudge: c.nudge === "true",
       };
 
     case "social_post": {

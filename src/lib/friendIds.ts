@@ -22,7 +22,7 @@ export async function friendIdSet(admin: Admin, me: string): Promise<Set<string>
 /**
  * An invite you received from someone you're NOT friends with — it waits in
  * the Inbox as a request (no event details) instead of landing on Today or
- * Calendar. Broadcasts (people you follow) and your own events don't count.
+ * Calendar. Broadcasts (people you follow), team events, and your own events don't count.
  */
 export function isStrangerInvite(
   row: { type: string; status: string; sender_id: string | null; content?: Record<string, unknown> | null },
@@ -32,5 +32,7 @@ export function isStrangerInvite(
   if (row.type !== "social_invite" || row.status !== "pending") return false;
   if (!row.sender_id || row.sender_id === me) return false;
   if ((row.content as Record<string, unknown> | null)?.broadcast === "true") return false;
+  // Team events: joining the team is the consent, captain needn't be a friend.
+  if ((row.content as Record<string, unknown> | null)?.teamId) return false;
   return !friends.has(row.sender_id);
 }

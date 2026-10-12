@@ -35,6 +35,25 @@ export function screenEventText(raw: string): GuardResult {
   return { ok: true, text };
 }
 
+export const SEASON_TOO_LONG = "That schedule is long — paste up to about 2,000 characters at a time.";
+
+/**
+ * Layer 1 for a pasted league schedule: longer text is fine (up to the season
+ * cap), but the same steering / markup / other-task checks apply, and it must
+ * look like dates.
+ */
+export function screenSeasonText(raw: string, cap: number): GuardResult {
+  const text = (raw ?? "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (!text) return { ok: false, reason: "Paste the league schedule — dates, times, and teams." };
+  if (text.length > cap) return { ok: false, reason: SEASON_TOO_LONG };
+  if (/```|<\/?\w+[^>]*>|\{\s*"/.test(text)) return { ok: false, reason: NOT_A_SCHEDULE };
+  if (STEERING.test(text)) return { ok: false, reason: NOT_A_SCHEDULE };
+  if (!TIME_SIGNAL.test(text)) return { ok: false, reason: NOT_A_SCHEDULE };
+  return { ok: true, text };
+}
+
+export const NOT_A_SCHEDULE = "That doesn't look like a schedule — paste lines with dates, times, and teams.";
+
 /** Lowercase, drop punctuation, squash spaces — for spotting repeats. */
 export function normalizePlanText(text: string): string {
   return text

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowUpRight, Check, MapPin, Link2, CalendarDays, CalendarPlus, Ticket } from "lucide-react";
+import { ArrowUpRight, Check, MapPin, Link2, CalendarDays, CalendarPlus, Ticket, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { initials } from "@/lib/cardTypes";
 import type { DigestCardData, CardStatus } from "@/lib/types";
@@ -63,6 +63,7 @@ export function DigestCard({ card, onResolve, busy = [], fill = false }: DigestC
 function senderLine(card: DigestCardData): { name: string; verb: string } | null {
   switch (card.type) {
     case "social_invite":
+      if (card.teamName) return { name: card.teamName, verb: card.teamKind === "practice" ? "has practice" : "has a game" };
       return { name: card.senderName, verb: "invited you" };
     case "social_post":
       return { name: card.senderName, verb: card.eventTitle ? `shared photos from ${card.eventTitle}` : "shared a post" };
@@ -71,6 +72,7 @@ function senderLine(card: DigestCardData): { name: string; verb: string } | null
     case "time_poll":
       return { name: card.senderName, verb: "is finding a time" };
     case "event_update":
+      if (card.nudge) return { name: card.hostName, verb: "needs an answer" };
       return { name: card.hostName, verb: card.changeSummary === "Plan canceled" ? "canceled the plan" : card.changeSummary === "You're in" ? "has a spot for you" : "updated the plan" };
     case "broadcast_bundle":
       return { name: card.senderName, verb: `posted ${card.count} events` };
@@ -321,9 +323,20 @@ function MetaLine({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
 function Extras({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) {
   if (card.type === "social_invite") {
     const conflict = conflictMeta(card, busy, clientTimeZone());
-    if (!card.location && !conflict && !(card.fee && card.fee > 0)) return null;
+    const team = teamLine(card);
+    if (!card.location && !conflict && !(card.fee && card.fee > 0) && !team) return null;
     return (
       <div className="mt-4 space-y-2.5">
+        {team && (
+          <p
+            className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] font-semibold ${
+              team.short ? "bg-fuchsia-100 text-fuchsia-900" : "bg-green-100 text-green-800"
+            }`}
+          >
+            <Users className="h-4 w-4 shrink-0" strokeWidth={2.2} />
+            {team.text}
+          </p>
+        )}
         {card.location && <MetaLine icon={MapPin} text={card.location} />}
         {conflict && (
           <p className={`text-[13px] ${conflict.conflict ? "font-medium text-amber-700" : "text-neutral-500"}`}>
@@ -342,6 +355,23 @@ function Extras({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) 
     );
   }
   return null;
+}
+
+/** "6 of 8 in — the team needs you" for a team game; null for anything else. */
+function teamLine(card: Invite): { text: string; short: boolean } | null {
+  if (!card.teamId || card.teamIn === undefined) return null;
+  const n = card.teamIn;
+  if (card.teamMin) {
+    const short = n < card.teamMin;
+    const need = card.teamMin - n;
+    return {
+      text: short
+        ? `${n} of ${card.teamMin} in — ${need === 1 ? "one more needed" : "the team needs you"}`
+        : `${n} in — enough to play`,
+      short,
+    };
+  }
+  return { text: `${n} in so far`, short: false };
 }
 
 /**
