@@ -41,7 +41,7 @@ export default async function CalendarPage() {
       (c) =>
         c.status === "accepted" ||
         // Personal invites only — public follower broadcasts stay in Today.
-        (c.type === "social_invite" && !c.broadcast && !isPastCard(c, now, tz)),
+        (c.type === "social_invite" && (!c.broadcast || !!c.waitlisted) && !isPastCard(c, now, tz)),
     );
 
   const byCreated = (a: DigestCardData, b: DigestCardData) =>

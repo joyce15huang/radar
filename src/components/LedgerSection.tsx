@@ -1,7 +1,8 @@
 "use client";
 
+import { PlanSectionHeader, AddRow, PLAN_CARD, IN_CARD_FORM } from "./PlanSection";
 import { useCallback, useEffect, useState } from "react";
-import { Receipt, Plus, Loader2, X, Trash2, Pencil, ArrowRight } from "lucide-react";
+import { Receipt, Loader2, X, Trash2, Pencil, ArrowRight } from "lucide-react";
 import {
   listLedger,
   addLineItem,
@@ -17,7 +18,7 @@ function money(cents: number): string {
 }
 
 /** Per-event expense ledger: add items, see who owes whom (netted). */
-export function LedgerSection({ eventId }: { eventId: string }) {
+export function LedgerSection({ eventId, canRemove = false }: { eventId: string; canRemove?: boolean }) {
   const [data, setData] = useState<LedgerData | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<LedgerItem | null>(null);
@@ -46,40 +47,30 @@ export function LedgerSection({ eventId }: { eventId: string }) {
     setEditing(null);
   };
 
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Expenses
-        </h2>
-        {!adding && !editing && data && data.people.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add expense
-          </button>
-        )}
-      </div>
+  const totalCents = (data?.items ?? []).reduce((n, it) => n + it.amountCents, 0);
+  const meta = totalCents > 0 ? `${money(totalCents)} total` : undefined;
+  const form =
+    (adding || editing) && data ? (
+      <AddForm
+        eventId={eventId}
+        people={data.people}
+        item={editing ?? undefined}
+        onDone={() => {
+          closeForm();
+          reload();
+        }}
+        onCancel={closeForm}
+      />
+    ) : null;
 
-      {(adding || editing) && data && (
-        <AddForm
-          eventId={eventId}
-          people={data.people}
-          item={editing ?? undefined}
-          onDone={() => {
-            closeForm();
-            reload();
-          }}
-          onCancel={closeForm}
-        />
-      )}
+  return (
+    <section className="space-y-2.5">
+      <PlanSectionHeader title="Expenses" meta={meta} eventId={eventId} module="expenses" canRemove={canRemove} />
 
       {data === null ? (
-        <div className="h-16 animate-pulse rounded-2xl bg-neutral-100 dark:bg-neutral-800" />
+        <div className="h-16 animate-pulse rounded-[18px] bg-neutral-100" />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200/70 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+        <div className={PLAN_CARD}>
           {/* Settlement summary */}
           {data.items.length > 0 && (
             <div className="border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
@@ -164,12 +155,12 @@ export function LedgerSection({ eventId }: { eventId: string }) {
               </li>
             ))}
 
-            {data.items.length === 0 && !adding && (
-              <li className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                No expenses yet. Add what you paid and pick who shares it.
-              </li>
-            )}
           </ul>
+          {(form || data.people.length > 0) && (
+            <div className={data.items.length > 0 ? "border-t border-neutral-100" : ""}>
+              {form ?? <AddRow label="Add an expense" hint="— who paid, who shares" onClick={() => setAdding(true)} />}
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -251,7 +242,7 @@ function AddForm({
   return (
     <form
       onSubmit={submit}
-      className="rounded-2xl border border-neutral-200/70 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+      className={IN_CARD_FORM}
     >
       <div className="flex items-end gap-2">
         <label className="block flex-1">

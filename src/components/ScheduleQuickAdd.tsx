@@ -7,6 +7,7 @@ import { parseSchedule, confirmSchedule } from "@/app/schedule-actions";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
 import { isRedundantNote } from "@/lib/noteText";
+import { MAX_EVENT_TEXT, TOO_LONG_MESSAGE } from "@/lib/parse/guard";
 
 interface ReviewItem {
   title: string;
@@ -31,9 +32,16 @@ export function ScheduleQuickAdd() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const count = text.trim().length;
+  const tooLong = count > MAX_EVENT_TEXT;
+
   async function review() {
     if (!text.trim()) {
       setErr("Type at least one event.");
+      return;
+    }
+    if (text.trim().length > MAX_EVENT_TEXT) {
+      setErr(TOO_LONG_MESSAGE);
       return;
     }
     setPending(true);
@@ -112,7 +120,9 @@ export function ScheduleQuickAdd() {
               e.preventDefault();
               void review();
             }}
-            className="flex h-12 items-center gap-2.5 rounded-2xl border border-neutral-200 bg-white pl-3.5 pr-1.5 transition focus-within:border-neutral-400"
+            className={`flex h-12 items-center gap-2.5 rounded-2xl border bg-white pl-3.5 pr-1.5 transition ${
+              tooLong ? "border-rose-400" : "border-neutral-200 focus-within:border-neutral-400"
+            }`}
           >
             <Sparkles className="h-[18px] w-[18px] shrink-0 text-neutral-400" strokeWidth={2} />
             <label htmlFor="quick-add" className="sr-only">
@@ -127,11 +137,17 @@ export function ScheduleQuickAdd() {
                 setErr(null);
               }}
               placeholder="Add plans… “fri lunch, 6p bball”"
+              aria-invalid={tooLong}
               className="min-w-0 flex-1 bg-transparent text-[15px] text-neutral-900 outline-none placeholder:text-neutral-400"
             />
+            {count >= MAX_EVENT_TEXT - 20 && (
+              <span className={`shrink-0 text-[12px] font-semibold tabular-nums ${tooLong ? "text-rose-600" : "text-neutral-400"}`}>
+                {count}/{MAX_EVENT_TEXT}
+              </span>
+            )}
             <button
               type="submit"
-              disabled={pending || !text.trim()}
+              disabled={pending || !text.trim() || tooLong}
               aria-label="Review dates"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-neutral-900 text-white transition hover:bg-neutral-700 disabled:opacity-30"
             >
@@ -144,6 +160,7 @@ export function ScheduleQuickAdd() {
               {msg}
             </p>
           )}
+          {tooLong && !err && <p className="mt-2 text-sm text-rose-700">{TOO_LONG_MESSAGE}</p>}
           {err && <p className="mt-2 text-sm text-rose-700">{err}</p>}
         </>
       ) : (

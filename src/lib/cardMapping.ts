@@ -91,6 +91,7 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         zelleId: c.zelleId ?? undefined,
         feePaid: c.feePaid === "true",
         broadcast: c.broadcast === "true",
+        waitlisted: !!c.waitlistedAt,
         senderId: row.sender_id ?? undefined,
       };
 

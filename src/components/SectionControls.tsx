@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { X, Loader2, Car, Receipt, ListChecks, DollarSign } from "lucide-react";
+import { X, Loader2, Car, Receipt, ListChecks } from "lucide-react";
 import { addEventModule, removeEventModule } from "@/app/module-actions";
-import { ADD_FEE_EVENT } from "./EventHeader";
 
 const LABELS: Record<string, string> = {
   carpool: "Carpool",
@@ -15,24 +14,23 @@ const ALL = ["carpool", "expenses", "tasks"] as const;
 const ICONS = { carpool: Car, expenses: Receipt, tasks: ListChecks } as const;
 
 /**
- * Host-only "Add to this plan": a tile per add-on not on the plan yet (fee,
- * carpool, expenses, tasks). Works before anyone's invited.
+ * Host-only "Add to this plan": a tile per section not on the plan yet
+ * (carpool, expenses, tasks). Works before anyone's invited. Fee lives in the
+ * top details card instead.
  */
 export function AddSectionBar({
   eventId,
   modules,
-  hasFee = true,
   hasGuests = true,
 }: {
   eventId: string;
   modules: string[];
-  hasFee?: boolean;
   hasGuests?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const missing = ALL.filter((m) => !modules.includes(m));
-  const tiles = (hasFee ? 0 : 1) + missing.length;
+  const tiles = missing.length;
   if (tiles === 0) return null;
   const tileCls =
     "flex h-[72px] flex-col items-center justify-center gap-1.5 rounded-[14px] border-[1.5px] border-dashed border-neutral-300 text-[13px] font-semibold text-neutral-900 transition hover:border-neutral-400 hover:bg-neutral-50 disabled:opacity-60";
@@ -52,12 +50,6 @@ export function AddSectionBar({
         {hasGuests ? "Only shows up for guests once you add it." : "Set it up now — guests see it when you invite them."}
       </p>
       <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: `repeat(${tiles}, minmax(0, 1fr))` }}>
-        {!hasFee && (
-          <button type="button" onClick={() => window.dispatchEvent(new Event(ADD_FEE_EVENT))} className={tileCls}>
-            <DollarSign className="h-5 w-5" strokeWidth={1.9} />
-            Fee
-          </button>
-        )}
         {missing.map((m) => {
           const Icon = ICONS[m];
           return (

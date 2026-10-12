@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { serverTimeZone } from "@/lib/tz";
-import { parseEvents, nowContext, type ParsedEvent } from "@/lib/parse/schedule";
+import { MAX_EVENTS, type ParsedEvent } from "@/lib/parse/schedule";
+import { guardedParse } from "@/lib/parse/guarded";
 import { formatWhen, formatWhenRange } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 
@@ -24,20 +25,14 @@ export async function parseSchedule(text: string): Promise<ParseScheduleResult> 
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "You're not signed in." };
-  if (!text.trim()) return { ok: false, error: "Type at least one event." };
-
-  try {
-    const tz = await serverTimeZone();
-    const events = await parseEvents(text, { nowContext: nowContext(tz), multiple: true });
-    const normalized: ParsedEvent[] = events.map((e) => ({
-      ...e,
-      when: e.startsAt ? formatWhen(e.startsAt, tz, e.hasTime) : e.when,
-    }));
-    if (normalized.length === 0) return { ok: false, error: "Couldn't read any events from that." };
-    return { ok: true, events: normalized };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  const tz = await serverTimeZone();
+  const res = await guardedParse(user.id, text, { tz, multiple: true });
+  if (!res.ok) return { ok: false, error: res.error };
+  const normalized: ParsedEvent[] = res.events.map((e) => ({
+    ...e,
+    when: e.startsAt ? formatWhen(e.startsAt, tz, e.hasTime) : e.when,
+  }));
+  return { ok: true, events: normalized };
 }
 
 export interface ConfirmScheduleItem {
@@ -65,7 +60,15 @@ export async function confirmSchedule(
   if (!actor) return { ok: false, error: "You're not signed in." };
   const { supabase, actorId } = actor;
 
-  const clean = (items ?? []).filter((i) => i.title?.trim() && i.startsAt);
+  const clean = (items ?? [])
+    .filter((i) => i.title?.trim() && i.startsAt && !Number.isNaN(Date.parse(i.startsAt)))
+    .slice(0, MAX_EVENTS * 2)
+    .map((i) => ({
+      ...i,
+      title: i.title.trim().slice(0, 120),
+      location: i.location?.slice(0, 200),
+      note: i.note?.slice(0, 500),
+    }));
   if (clean.length === 0) return { ok: false, error: "Nothing to add." };
 
   const tz = await serverTimeZone();

@@ -453,8 +453,9 @@ function EventRowInner({
 
   const isInvite = card.type === "social_invite";
   const isWindow = card.type === "time_window";
-  const isPending = isInvite && card.status === "pending";
-  const barClass = rowBar(card);
+  const waitlisted = isInvite && !!card.waitlisted;
+  const isPending = isInvite && card.status === "pending" && !waitlisted;
+  const barClass = waitlisted ? "bg-violet-300" : rowBar(card);
   const title = titleOf(card);
   const location = !isWindow ? card.location : undefined;
   const eventId = isInvite ? card.eventId : undefined;
@@ -494,7 +495,11 @@ function EventRowInner({
       return;
     }
     onUpdate({ ...card, status: "accepted" });
-    void updateCardStatus(card.id, "accepted");
+    void updateCardStatus(card.id, "accepted").then((res) => {
+      // Full plan: you're on the waitlist (or it's simply full).
+      if (res?.state === "waitlisted" && card.type === "social_invite") onUpdate({ ...card, status: "pending", waitlisted: true });
+      else if (res?.state === "full") onUpdate(card);
+    });
   };
 
   const rowBody = (
@@ -504,6 +509,7 @@ function EventRowInner({
         {isPending && (
           <p className="mb-0.5 text-[12px] font-semibold text-fuchsia-700">{card.senderName} invited you</p>
         )}
+        {waitlisted && <p className="mb-0.5 text-[12px] font-semibold text-violet-700">On the waitlist</p>}
         <h3 className="text-[15px] font-semibold leading-snug text-neutral-900">{title}</h3>
         {location && (
           <p className="mt-0.5 flex items-center gap-1.5 text-[13px] text-neutral-600">

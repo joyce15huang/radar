@@ -70,6 +70,8 @@ export interface SocialInviteCard extends CardBase {
   category?: CategoryKey;
   /** Host allows guests to invite others. */
   allowReinvite?: boolean;
+  /** Said Going on a full plan — waiting for a spot. */
+  waitlisted?: boolean;
   /** Participation fee in integer cents (host-set); undefined = free. */
   fee?: number;
   /** Host's payment deep-link (legacy). The app processes no real money. */

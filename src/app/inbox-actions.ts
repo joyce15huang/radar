@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { friendIdSet } from "@/lib/friendIds";
+import { applyRsvp, type RsvpResult } from "@/lib/capacity";
 
 export interface InboxInvite {
   cardId: string;
@@ -42,7 +43,10 @@ export async function listInboxInvites(): Promise<InboxInvite[]> {
     .neq("sender_id", me)
     .order("created_at", { ascending: false })
     .limit(50);
-  const invites = (rows ?? []).filter((r) => (r.content as Record<string, string> | null)?.broadcast !== "true");
+  const invites = (rows ?? []).filter((r) => {
+    const c = r.content as Record<string, string> | null;
+    return c?.broadcast !== "true" && !c?.waitlistedAt;
+  });
   if (invites.length === 0) return [];
 
   const senderIds = [...new Set(invites.map((r) => r.sender_id as string))];
@@ -94,27 +98,29 @@ export async function inboxCount(): Promise<number> {
         .eq("addressee_id", me)
         .eq("status", "pending"),
     ]);
-    const invites = (inv ?? []).filter((r) => (r.content as Record<string, string> | null)?.broadcast !== "true").length;
+    const invites = (inv ?? []).filter((r) => {
+      const c = r.content as Record<string, string> | null;
+      return c?.broadcast !== "true" && !c?.waitlistedAt;
+    }).length;
     return invites + (reqs ?? 0);
   } catch {
     return 0;
   }
 }
 
-/** Accept (→ on your calendar) or decline an event invite. */
-export async function respondToInvite(cardId: string, accept: boolean): Promise<{ ok: boolean; eventId?: string; error?: string }> {
+/** Accept (→ on your calendar, or the waitlist if it's full) or decline an event invite. */
+export async function respondToInvite(
+  cardId: string,
+  accept: boolean,
+): Promise<{ ok: boolean; eventId?: string; error?: string; state?: RsvpResult["state"]; position?: number }> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
-  const { data, error } = await actor.supabase
-    .from("cards")
-    .update({ status: accept ? "accepted" : "dismissed" })
-    .eq("id", cardId)
-    .eq("user_id", actor.actorId)
-    .select("event_id")
-    .maybeSingle();
-  if (error) return { ok: false, error: error.message };
+  const admin = createAdminClient();
+  const { data: card } = await admin.from("cards").select("user_id, event_id").eq("id", cardId).maybeSingle();
+  if (!card || card.user_id !== actor.actorId) return { ok: false, error: "Couldn't find that invite." };
+  const res = await applyRsvp(admin, cardId, accept);
   revalidatePath("/inbox");
   revalidatePath("/calendar");
   revalidatePath("/today");
-  return { ok: true, eventId: (data?.event_id as string | null) ?? undefined };
+  return { ok: true, eventId: (card.event_id as string | null) ?? undefined, state: res.state, position: res.position };
 }

@@ -16,6 +16,7 @@ import { PostComposer } from "@/components/PostComposer";
 import { AddSectionBar } from "@/components/SectionControls";
 import { EventPhotos } from "@/components/EventPhotos";
 import { RemoveFromCalendar } from "@/components/RemoveFromCalendar";
+import { capInfo } from "@/lib/capacity";
 import type { ViewerPhoto } from "@/components/PhotoViewer";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
@@ -81,8 +82,17 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
 
   const isGuest = !isHost && !!myCard;
   const allowReinvite = ev.allow_reinvite ?? false;
-  const rsvpStatus: "accepted" | "pending" | "none" =
-    myCard?.status === "accepted" ? "accepted" : myCard?.status === "pending" ? "pending" : "none";
+  // Guest limit + waitlist (no limit until migration 0041 runs).
+  const cap = await capInfo(admin, id);
+  const myWaitIdx = myCard ? cap.waitlisted.findIndex((w) => w.cardId === myCard.id) : -1;
+  const rsvpStatus: "accepted" | "pending" | "waitlisted" | "none" =
+    myCard?.status === "accepted"
+      ? "accepted"
+      : myWaitIdx >= 0
+        ? "waitlisted"
+        : myCard?.status === "pending"
+          ? "pending"
+          : "none";
   const hasTime = ev.starts_at ? /T\d\d:\d\d/.test(ev.starts_at) : false;
 
   let hostName = "the host";
@@ -175,6 +185,10 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
     zelleId: ev.zelle_id ?? "",
     cardId: myCard?.id as string | undefined,
     feePaid,
+    capacity: cap.capacity,
+    waitlistOn: cap.waitlist,
+    goingCount: cap.going,
+    waitlistCount: cap.waitlisted.length,
   };
 
   // Anyone besides the host on the plan yet? (Changes the add-ons copy.)
@@ -248,7 +262,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                   note={title}
                 />
               )}
-              {hasMod("expenses") && <LedgerSection eventId={id} />}
+              {hasMod("expenses") && <LedgerSection eventId={id} canRemove={isHost} />}
               {chat}
 
               <details className="group rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
@@ -259,8 +273,8 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 <div className="space-y-8 border-t border-neutral-100 p-4">
                   <EventHeader data={headerData} />
                   {people}
-                  {hasMod("carpool") && <CarpoolSection eventId={id} />}
-                  {hasMod("tasks") && <TaskSection eventId={id} />}
+                  {hasMod("carpool") && <CarpoolSection eventId={id} canRemove={isHost} />}
+                  {hasMod("tasks") && <TaskSection eventId={id} canRemove={isHost} />}
                 </div>
               </details>
             </div>
@@ -270,13 +284,24 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
             <EventHeader data={headerData} />
             <div className="space-y-8">
               {isGuest && (
-                <EventActions data={{ cardId: myCard?.id as string | undefined, isHost, status: rsvpStatus }} />
+                <EventActions
+                  data={{
+                    cardId: myCard?.id as string | undefined,
+                    isHost,
+                    status: rsvpStatus,
+                    capacity: cap.capacity,
+                    going: cap.going,
+                    waitlistOn: cap.waitlist,
+                    waitlistCount: cap.waitlisted.length,
+                    myPosition: myWaitIdx >= 0 ? myWaitIdx + 1 : null,
+                  }}
+                />
               )}
               {people}
-              {isHost && <AddSectionBar eventId={id} modules={modules} hasFee={feeCents > 0} hasGuests={hasGuests} />}
-              {hasMod("carpool") && <CarpoolSection eventId={id} />}
-              {hasMod("tasks") && <TaskSection eventId={id} />}
-              {hasMod("expenses") && <LedgerSection eventId={id} />}
+              {isHost && <AddSectionBar eventId={id} modules={modules} hasGuests={hasGuests} />}
+              {hasMod("carpool") && <CarpoolSection eventId={id} canRemove={isHost} />}
+              {hasMod("tasks") && <TaskSection eventId={id} canRemove={isHost} />}
+              {hasMod("expenses") && <LedgerSection eventId={id} canRemove={isHost} />}
               {chat}
             </div>
           </>

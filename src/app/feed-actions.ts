@@ -6,14 +6,27 @@ import { parseEvents, nowContext } from "@/lib/parse/schedule";
 import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 import type { CardStatus } from "@/lib/types";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { applyRsvp, type RsvpResult } from "@/lib/capacity";
 
 /**
  * Persists a card interaction from the feed. RLS already restricts writes to the
  * owner; the explicit user_id match is belt-and-suspenders.
  */
-export async function updateCardStatus(id: string, status: CardStatus) {
+export async function updateCardStatus(id: string, status: CardStatus): Promise<RsvpResult | undefined> {
   const actor = await getActor();
   if (!actor) return;
+
+  // Saying Going / Can't go on a plan respects its guest limit + waitlist.
+  if (status === "accepted" || status === "dismissed") {
+    const admin = createAdminClient();
+    const { data: card } = await admin.from("cards").select("type, user_id, event_id").eq("id", id).maybeSingle();
+    if (card && card.user_id === actor.actorId && card.type === "social_invite" && card.event_id) {
+      const res = await applyRsvp(admin, id, status === "accepted");
+      revalidatePath("/calendar");
+      return res;
+    }
+  }
 
   await actor.supabase
     .from("cards")

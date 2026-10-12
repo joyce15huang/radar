@@ -1,5 +1,6 @@
 "use server";
 
+import { capInfo, promoteFromWaitlist, NEEDS_0041 } from "@/lib/capacity";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverTimeZone } from "@/lib/tz";
@@ -614,4 +615,36 @@ export async function cancelEvent(eventId: string): Promise<{ ok: boolean; error
   revalidatePath("/calendar");
   revalidatePath("/inbox");
   return { ok: true, notified: guestIds.length };
+}
+
+/**
+ * Host-only: set (or remove, with null) the plan's guest limit and whether a
+ * waitlist opens when it's full. Raising or removing the limit moves people in
+ * off the waitlist right away.
+ */
+export async function setEventCapacity(
+  eventId: string,
+  capacity: number | null,
+  waitlist: boolean,
+): Promise<{ ok: boolean; error?: string; promoted?: number }> {
+  const actor = await getActor();
+  if (!actor) return { ok: false, error: "You're not signed in." };
+  const admin = createAdminClient();
+  const { data: ev } = await admin.from("events").select("creator_id").eq("id", eventId).maybeSingle();
+  if (!ev) return { ok: false, error: "That plan no longer exists." };
+  if (ev.creator_id !== actor.actorId) return { ok: false, error: "Only the host can set a guest limit." };
+
+  const cap = capacity === null ? null : Math.floor(capacity);
+  if (cap !== null && (!Number.isFinite(cap) || cap < 1)) return { ok: false, error: "Pick at least 1 spot." };
+  const info = await capInfo(admin, eventId);
+  if (cap !== null && cap < info.going)
+    return { ok: false, error: `${info.going} people are already going — pick ${info.going} or more.` };
+
+  const { error } = await admin.from("events").update({ capacity: cap, waitlist }).eq("id", eventId);
+  if (error) return { ok: false, error: /capacity|waitlist/i.test(error.message) ? NEEDS_0041 : error.message };
+
+  const promoted = await promoteFromWaitlist(admin, eventId);
+  revalidatePath("/calendar");
+  revalidatePath("/today");
+  return { ok: true, promoted };
 }

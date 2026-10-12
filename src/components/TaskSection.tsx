@@ -1,10 +1,11 @@
 "use client";
 
+import { PlanSectionHeader, AddRow, PLAN_CARD, IN_CARD_FORM } from "./PlanSection";
 import { useCallback, useEffect, useState } from "react";
 import {
   CheckSquare,
   Square,
-  Plus,
+
   Loader2,
   Trash2,
   Pencil,
@@ -25,7 +26,7 @@ import type { EventTask, TaskData, TaskPerson } from "@/lib/tasks";
 
 /** Task delegation: each task is assigned to a subset of guests; everyone marks
  *  their own copy done. Progress shows as a count you can expand. */
-export function TaskSection({ eventId }: { eventId: string }) {
+export function TaskSection({ eventId, canRemove = false }: { eventId: string; canRemove?: boolean }) {
   const [data, setData] = useState<TaskData | null>(null);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<EventTask | null>(null);
@@ -66,41 +67,32 @@ export function TaskSection({ eventId }: { eventId: string }) {
 
   const people = data?.people ?? [];
 
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Tasks
-        </h2>
-        {!adding && !editing && people.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-          >
-            <Plus className="h-3.5 w-3.5" /> Add task
-          </button>
-        )}
-      </div>
+  const tasks = data?.tasks ?? [];
+  const doneCount = tasks.filter((t) => t.allDone).length;
+  const meta = tasks.length > 0 ? `${doneCount} of ${tasks.length} done` : undefined;
+  const form =
+    (adding || editing) && data ? (
+      <TaskForm
+        eventId={eventId}
+        people={people}
+        task={editing ?? undefined}
+        onDone={() => {
+          closeForm();
+          reload();
+        }}
+        onCancel={closeForm}
+      />
+    ) : null;
 
-      {(adding || editing) && data && (
-        <TaskForm
-          eventId={eventId}
-          people={people}
-          task={editing ?? undefined}
-          onDone={() => {
-            closeForm();
-            reload();
-          }}
-          onCancel={closeForm}
-        />
-      )}
+  return (
+    <section className="space-y-2.5">
+      <PlanSectionHeader title="Tasks" meta={meta} eventId={eventId} module="tasks" canRemove={canRemove} />
 
       {data === null ? (
-        <div className="h-16 animate-pulse rounded-2xl bg-neutral-100 dark:bg-neutral-800" />
+        <div className="h-16 animate-pulse rounded-[18px] bg-neutral-100" />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-neutral-200/70 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
+        <div className={PLAN_CARD}>
+        <ul className="divide-y divide-neutral-100">
           {data.tasks.map((t) => {
             const open = t.total === 0;
             const isOpen = expanded.has(t.id);
@@ -240,12 +232,12 @@ export function TaskSection({ eventId }: { eventId: string }) {
             );
           })}
 
-          {data.tasks.length === 0 && !adding && (
-            <li className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              Nothing to do yet — add a task and pick who it&rsquo;s for.
-            </li>
-          )}
         </ul>
+        {(form || people.length > 0) && (
+          <div className={data.tasks.length > 0 ? "border-t border-neutral-100" : ""}>
+            {form ?? <AddRow label="Add a task" hint="— pick who it's for" onClick={() => setAdding(true)} />}
+          </div>
+        )}
         </div>
       )}
     </section>
@@ -309,7 +301,7 @@ function TaskForm({
   return (
     <form
       onSubmit={submit}
-      className="rounded-2xl border border-neutral-200/70 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+      className={IN_CARD_FORM}
     >
       <label className="block">
         <span className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">Task</span>

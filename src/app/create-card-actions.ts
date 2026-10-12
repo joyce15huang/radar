@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverTimeZone } from "@/lib/tz";
-import { parseEvents, nowContext, type ParsedEvent } from "@/lib/parse/schedule";
+import { type ParsedEvent } from "@/lib/parse/schedule";
+import { guardedParse } from "@/lib/parse/guarded";
 import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 
@@ -21,20 +22,12 @@ export async function parseEventPreview(text: string): Promise<PreviewResult> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "You're not signed in." };
-  if (!text.trim()) return { ok: false, error: "Describe the event first." };
-
-  try {
-    const tz = await serverTimeZone();
-    const events = await parseEvents(text, { nowContext: nowContext(tz), multiple: false });
-    if (events.length === 0) {
-      return { ok: false, error: "Couldn't find an event in that — try adding a day or time." };
-    }
-    const ev = events[0];
-    const when = ev.startsAt ? formatWhen(ev.startsAt, tz, ev.hasTime) : ev.when;
-    return { ok: true, event: { ...ev, when } };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  const tz = await serverTimeZone();
+  const res = await guardedParse(user.id, text, { tz, multiple: false });
+  if (!res.ok) return { ok: false, error: res.error };
+  const ev = res.events[0];
+  const when = ev.startsAt ? formatWhen(ev.startsAt, tz, ev.hasTime) : ev.when;
+  return { ok: true, event: { ...ev, when } };
 }
 
 /** Prettify an email local-part: "ada.lovelace" → "Ada Lovelace". */

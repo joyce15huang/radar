@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Plus, Loader2, X, Check, Trash2, UserRound } from "lucide-react";
+import { Car, Loader2, X, Check, Trash2, UserRound } from "lucide-react";
 import { listRides, offerRide, deleteRide, setSeat } from "@/app/carpool-actions";
 import type { Ride } from "@/lib/carpool";
+import { PlanSectionHeader, AddRow, PLAN_CARD, IN_CARD_FORM } from "./PlanSection";
 
 /** Carpool board for the event page: offer a ride with seats, claim a seat. */
-export function CarpoolSection({ eventId }: { eventId: string }) {
+export function CarpoolSection({ eventId, canRemove = false }: { eventId: string; canRemove?: boolean }) {
   const [rides, setRides] = useState<Ride[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -37,36 +38,21 @@ export function CarpoolSection({ eventId }: { eventId: string }) {
     reload();
   }
 
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-          Carpool
-        </h2>
-        {!adding && (
-          <button
-            type="button"
-            onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 transition hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-          >
-            <Plus className="h-3.5 w-3.5" /> Offer a ride
-          </button>
-        )}
-      </div>
+  const seatsLeft = (rides ?? []).reduce((n, r) => n + r.seatsLeft, 0);
+  const meta =
+    rides && rides.length > 0
+      ? `${rides.length} ${rides.length === 1 ? "ride" : "rides"} · ${seatsLeft} ${seatsLeft === 1 ? "seat" : "seats"} left`
+      : undefined;
 
-      <div className="space-y-2">
-        {adding && <OfferForm eventId={eventId} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
+  return (
+    <section className="space-y-2.5">
+      <PlanSectionHeader title="Carpool" meta={meta} eventId={eventId} module="carpool" canRemove={canRemove} />
 
         {rides === null ? (
-          <div className="h-16 animate-pulse rounded-2xl bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-16 animate-pulse rounded-[18px] bg-neutral-100" />
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-neutral-200/70 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/70">
-              {rides.length === 0 && !adding && (
-                <li className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                  No rides yet — offer one if you&rsquo;re driving.
-                </li>
-              )}
+          <div className={PLAN_CARD}>
+            <ul className="divide-y divide-neutral-100">
               {rides.map((r) => (
                 <li key={r.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
@@ -127,9 +113,15 @@ export function CarpoolSection({ eventId }: { eventId: string }) {
                 </li>
               ))}
             </ul>
+            <div className={rides.length > 0 ? "border-t border-neutral-100" : ""}>
+              {adding ? (
+                <OfferForm eventId={eventId} onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />
+              ) : (
+                <AddRow label="Offer a ride" hint="if you're driving" onClick={() => setAdding(true)} />
+              )}
+            </div>
           </div>
         )}
-      </div>
     </section>
   );
 }
@@ -173,7 +165,7 @@ function OfferForm({
   return (
     <form
       onSubmit={submit}
-      className="rounded-2xl border border-neutral-200/70 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900"
+      className={IN_CARD_FORM}
     >
       <div className="flex items-end gap-2">
         <label className="block w-20">

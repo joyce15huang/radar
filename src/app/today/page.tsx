@@ -80,7 +80,12 @@ export default async function TodayPage() {
   });
   // Invites from people you're not friends with wait in the Inbox instead.
   const friends = await friendIdSet(createAdminClient(), actorId);
-  const pendingRows = (rows ?? []).filter((r) => !isStrangerInvite(r as CardRow, actorId, friends));
+  const pendingRows = (rows ?? []).filter(
+    (r) =>
+      !isStrangerInvite(r as CardRow, actorId, friends) &&
+      // Already answered "Going" and waiting for a spot — lives on the Calendar.
+      !((r.content ?? {}) as Record<string, unknown>).waitlistedAt,
+  );
   const mapped = [...handled, ...pendingRows]
     .map((r) => rowToCard(r as CardRow))
     .filter((c): c is DigestCardData => c !== null)

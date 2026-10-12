@@ -81,6 +81,8 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
   const going: Attendee[] = [];
   const invited: Attendee[] = [];
   const declined: Attendee[] = [];
+  const waitlist: Attendee[] = [];
+  const waitAt = new Map<string, string>();
   const seen = new Set<string>();
   let paidCount = 0;
   for (const r of rows) {
@@ -94,14 +96,24 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
     if (feePaid) paidCount += 1;
     const extra = extraById.get(uid) ?? {};
     if (r.status === "accepted") going.push({ id: uid, name, status: "going", isHost, feePaid, ...extra });
-    else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost, feePaid, ...extra });
+    else if (r.status === "pending" && content.waitlistedAt) {
+      waitAt.set(uid, content.waitlistedAt);
+      waitlist.push({ id: uid, name, status: "waitlist", isHost, feePaid, ...extra });
+    } else if (r.status === "pending") invited.push({ id: uid, name, status: "invited", isHost, feePaid, ...extra });
     else if (r.status === "dismissed") declined.push({ id: uid, name, status: "declined", isHost, feePaid, ...extra });
   }
 
   going.sort((a, b) => Number(b.isHost) - Number(a.isHost) || a.name.localeCompare(b.name));
   invited.sort((a, b) => a.name.localeCompare(b.name));
+  waitlist.sort((a, b) => (waitAt.get(a.id) ?? "").localeCompare(waitAt.get(b.id) ?? ""));
+  waitlist.forEach((a, i) => (a.position = i + 1));
 
-  if (going.length === 0 && invited.length === 0) return null;
+  if (going.length === 0 && invited.length === 0 && waitlist.length === 0) return null;
+
+  // Guest limit (absent until migration 0041 runs).
+  let capacity: number | null = null;
+  const { data: capRow, error: capErr } = await admin.from("events").select("capacity").eq("id", eventId).maybeSingle();
+  if (!capErr) capacity = (capRow?.capacity as number | null) ?? null;
 
   return {
     going,
@@ -109,6 +121,9 @@ export async function getEventRoster(eventId: string): Promise<EventRoster | nul
     goingCount: going.length,
     invitedCount: invited.length,
     declined,
+    waitlist,
+    waitlistCount: waitlist.length,
+    capacity,
     hasFee,
     paidCount,
   };

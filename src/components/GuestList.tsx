@@ -20,6 +20,7 @@ const STATUS: Record<Attendee["status"], { label: string; cls: string }> = {
   going: { label: "Going", cls: "bg-sky-100 text-sky-800" },
   invited: { label: "Invited", cls: "bg-neutral-100 text-neutral-600" },
   declined: { label: "Can't go", cls: "bg-transparent text-neutral-400" },
+  waitlist: { label: "Waitlist", cls: "bg-violet-100 text-violet-800" },
 };
 
 /** The event's guest list: one tappable row per person with their status and IG handle. */
@@ -30,7 +31,7 @@ export function GuestList({
 }: {
   eventId: string;
   canInvite: boolean;
-  onCounts?: (going: number, invited: number) => void;
+  onCounts?: (going: number, invited: number, waitlist: number, capacity: number | null) => void;
 }) {
   const [roster, setRoster] = useState<EventRoster | null | "loading">("loading");
   const [all, setAll] = useState(false);
@@ -41,7 +42,7 @@ export function GuestList({
       .then((r) => {
         if (!live) return;
         setRoster(r);
-        if (r) onCounts?.(r.goingCount, r.invitedCount);
+        if (r) onCounts?.(r.goingCount, r.invitedCount, r.waitlistCount ?? 0, r.capacity ?? null);
       })
       .catch(() => live && setRoster(null));
     return () => {
@@ -62,7 +63,7 @@ export function GuestList({
     );
   }
 
-  const people = roster ? [...roster.going, ...roster.invited, ...roster.declined] : [];
+  const people = roster ? [...roster.going, ...(roster.waitlist ?? []), ...roster.invited, ...roster.declined] : [];
   const visible = all ? people : people.slice(0, COLLAPSED);
 
   return (
@@ -99,7 +100,9 @@ export function GuestList({
                 </a>
               )}
             </div>
-            <span className={`inline-flex h-[26px] shrink-0 items-center rounded-lg px-2.5 text-[12px] font-bold ${s.cls}`}>{s.label}</span>
+            <span className={`inline-flex h-[26px] shrink-0 items-center rounded-lg px-2.5 text-[12px] font-bold ${s.cls}`}>
+              {p.status === "waitlist" && p.position ? `Waitlist #${p.position}` : s.label}
+            </span>
           </div>
         );
       })}

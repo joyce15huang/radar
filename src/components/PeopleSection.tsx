@@ -24,8 +24,12 @@ export function PeopleSection({
   const router = useRouter();
   const [inviting, setInviting] = useState(false);
   const [rev, setRev] = useState(0);
-  const [counts, setCounts] = useState<{ going: number; invited: number } | null>(null);
-  const onCounts = useCallback((going: number, invited: number) => setCounts({ going, invited }), []);
+  const [counts, setCounts] = useState<{ going: number; invited: number; waitlist: number; capacity: number | null } | null>(null);
+  const onCounts = useCallback(
+    (going: number, invited: number, waitlist: number, capacity: number | null) =>
+      setCounts({ going, invited, waitlist, capacity }),
+    [],
+  );
   const [reinvite, setReinvite] = useState(allowReinvite);
   const [savingReinvite, setSavingReinvite] = useState(false);
 
@@ -46,7 +50,9 @@ export function PeopleSection({
           Guests
           {counts && (
             <span className="ml-1.5 text-[14px] font-medium text-neutral-500">
-              {counts.going} going{counts.invited > 0 ? ` · ${counts.invited} invited` : ""}
+              {counts.capacity ? `${counts.going} of ${counts.capacity} going` : `${counts.going} going`}
+              {counts.waitlist > 0 ? ` · ${counts.waitlist} waitlist` : ""}
+              {counts.invited > 0 ? ` · ${counts.invited} invited` : ""}
             </span>
           )}
         </h2>

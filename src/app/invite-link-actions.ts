@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { eventForCode } from "@/lib/inviteLinks";
+import { applyRsvp } from "@/lib/capacity";
 import { inviteToEvent } from "@/app/event-actions";
 
 const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -122,9 +123,7 @@ export async function joinViaInvite(code: string): Promise<void> {
     .limit(1);
 
   if (existing?.length) {
-    if (existing[0].status !== "accepted") {
-      await admin.from("cards").update({ status: "accepted" }).eq("id", existing[0].id);
-    }
+    if (existing[0].status !== "accepted") await applyRsvp(admin, existing[0].id as string, true);
   } else {
     // Copy the host's own (canonical) card content so every attendee sees the same details.
     const { data: hostCard } = await admin
@@ -135,15 +134,22 @@ export async function joinViaInvite(code: string): Promise<void> {
       .limit(1)
       .maybeSingle();
     const content = { ...((hostCard?.content ?? {}) as Record<string, string>) };
-    await admin.from("cards").insert({
-      user_id: me,
-      sender_id: ev.creator_id,
-      type: "social_invite",
-      title: hostCard?.title ?? ev.title,
-      content,
-      status: "accepted",
-      event_id: ev.id,
-    });
+    delete (content as Record<string, string | undefined>).feePaid;
+    const { data: mine } = await admin
+      .from("cards")
+      .insert({
+        user_id: me,
+        sender_id: ev.creator_id,
+        type: "social_invite",
+        title: hostCard?.title ?? ev.title,
+        content,
+        status: "pending",
+        event_id: ev.id,
+      })
+      .select("id")
+      .single();
+    // Takes a seat if there is one, else joins the waitlist.
+    if (mine?.id) await applyRsvp(admin, mine.id as string, true);
   }
 
   // Friends with the host, unless already connected in either direction.

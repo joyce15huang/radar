@@ -14,8 +14,11 @@ import {
   AlignLeft,
   ChevronRight,
   DollarSign,
+  Plus,
+  Minus,
+  Ticket,
 } from "lucide-react";
-import { updateHostEvent } from "@/app/event-actions";
+import { updateHostEvent, setEventCapacity } from "@/app/event-actions";
 import { FeeRow } from "./EventFeePanel";
 import { WhenPicker, type WhenValue } from "./WhenPicker";
 import { clientTimeZone, isoFromLocal, localFromIso, formatWhenRange } from "@/lib/localDateTime";
@@ -43,12 +46,14 @@ export interface EventHeaderData {
   /** The viewer's own invite card id + whether they've marked the fee paid. */
   cardId?: string;
   feePaid: boolean;
+  /** Guest limit (null = none), whether a waitlist opens when full, and counts. */
+  capacity: number | null;
+  waitlistOn: boolean;
+  goingCount: number;
+  waitlistCount: number;
 }
 
-/** Fired by the "Fee" tile under "Add to this plan" to open the fee editor here. */
-export const ADD_FEE_EVENT = "plan:add-fee";
-
-type Field = "title" | "when" | "location" | "note" | "fee";
+type Field = "title" | "when" | "location" | "note" | "fee" | "cap";
 
 interface Values {
   title: string;
@@ -102,16 +107,6 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKey]);
 
-  // The "Fee" tile lives further down the page.
-  useEffect(() => {
-    if (!host) return;
-    const open = () => {
-      setEditing("fee");
-      setTimeout(() => feeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-    };
-    window.addEventListener(ADD_FEE_EVENT, open);
-    return () => window.removeEventListener(ADD_FEE_EVENT, open);
-  }, [host]);
 
   async function save(patch: Partial<Values>) {
     const next = { ...v, ...patch };
@@ -279,7 +274,16 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
             <div ref={feeRef}>
               <FeeEditor v={v} busy={busy} onCancel={() => setEditing(null)} onSave={(p) => save(p)} />
             </div>
-          ) : host && v.feeCents > 0 ? (
+          ) : host && v.feeCents <= 0 ? (
+            <button type="button" onClick={() => setEditing("fee")} className={`${rowCls} transition hover:bg-neutral-50`}>
+              {iconBox(<span className="text-[20px] font-bold text-amber-800">$</span>, "bg-amber-100")}
+              <div className="min-w-0 flex-1">
+                {ghost("Add a fee")}
+                <p className="truncate text-[13px] text-neutral-400">optional — guests pay you on Venmo / Zelle</p>
+              </div>
+              <Plus className="h-4 w-4 shrink-0 text-neutral-300" strokeWidth={2.4} />
+            </button>
+          ) : host ? (
             <button type="button" onClick={() => setEditing("fee")} className={`${rowCls} transition hover:bg-neutral-50`}>
               {iconBox(<span className="text-[20px] font-bold text-amber-800">$</span>, "bg-amber-100")}
               <div className="min-w-0 flex-1">
@@ -305,6 +309,44 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
                 note={v.title}
               />
             )
+          )}
+
+          {/* Guest limit */}
+          {host && editing === "cap" ? (
+            <CapEditor
+              eventId={data.eventId}
+              capacity={data.capacity}
+              waitlistOn={data.waitlistOn}
+              going={data.goingCount}
+              onCancel={() => setEditing(null)}
+              onSaved={() => {
+                setEditing(null);
+                router.refresh();
+              }}
+            />
+          ) : host && data.capacity === null ? (
+            <button type="button" onClick={() => setEditing("cap")} className={`${rowCls} transition hover:bg-neutral-50`}>
+              {iconBox(<Ticket className="h-5 w-5 text-violet-700" />, "bg-violet-50")}
+              <div className="min-w-0 flex-1">
+                {ghost("Add a guest limit")}
+                <p className="truncate text-[13px] text-neutral-400">optional — no limit right now</p>
+              </div>
+              <Plus className="h-4 w-4 shrink-0 text-neutral-300" strokeWidth={2.4} />
+            </button>
+          ) : (
+            data.capacity !== null &&
+            (host ? (
+              <button type="button" onClick={() => setEditing("cap")} className={`${rowCls} transition hover:bg-neutral-50`}>
+                {iconBox(<Ticket className="h-5 w-5 text-violet-700" />, "bg-violet-50")}
+                <CapSummary host data={data} />
+                {chevron}
+              </button>
+            ) : (
+              <div className={rowCls}>
+                {iconBox(<Ticket className="h-5 w-5 text-violet-700" />, "bg-violet-50")}
+                <CapSummary host={false} data={data} />
+              </div>
+            ))
           )}
 
           {/* Note */}
@@ -555,6 +597,134 @@ function FeeEditor({
                 className="text-[13px] font-semibold text-fuchsia-700 hover:underline"
               >
                 Remove fee
+              </button>
+            ) : null
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
+/** "3 spots left · 17 of 20 going" / "Full · 20 of 20" with a fill bar. */
+function CapSummary({ host, data }: { host: boolean; data: EventHeaderData }) {
+  const cap = data.capacity ?? 0;
+  const going = data.goingCount;
+  const left = Math.max(0, cap - going);
+  const full = left === 0;
+  const main = full ? `Full · ${going} of ${cap}` : `${left} ${left === 1 ? "spot" : "spots"} left`;
+  const sub = !full
+    ? `${going} of ${cap} going`
+    : host
+      ? data.waitlistOn
+        ? `${data.waitlistCount} on the waitlist`
+        : "Waitlist off"
+      : data.waitlistOn
+        ? "Join the waitlist — you'll move in if a spot opens"
+        : "No more spots";
+  const pct = cap > 0 ? Math.min(100, Math.round((going / cap) * 100)) : 0;
+  return (
+    <div className="min-w-0 flex-1">
+      <p className="text-[15px] font-semibold text-neutral-900">{main}</p>
+      <p className="truncate text-[13px] text-neutral-600">{sub}</p>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
+        <div className={`h-full rounded-full ${full ? "bg-neutral-900" : "bg-fuchsia-700"}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** The guest-limit row opened up: − N + stepper, waitlist switch, remove. */
+function CapEditor({
+  eventId,
+  capacity,
+  waitlistOn,
+  going,
+  onCancel,
+  onSaved,
+}: {
+  eventId: string;
+  capacity: number | null;
+  waitlistOn: boolean;
+  going: number;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const min = Math.max(1, going);
+  const [n, setN] = useState(String(capacity ?? Math.max(20, going)));
+  const [wait, setWait] = useState(waitlistOn);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const num = parseInt(n, 10);
+  const step = (d: number) => setN(String(Math.max(min, (Number.isFinite(num) ? num : min) + d)));
+
+  async function save(cap: number | null) {
+    if (cap !== null && (!Number.isFinite(cap) || cap < min)) {
+      setError(going > 0 ? `${going} ${going === 1 ? "person is" : "people are"} already going — pick ${min} or more.` : "Pick at least 1.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await setEventCapacity(eventId, cap, wait);
+    setBusy(false);
+    if (!res.ok) return setError(res.error ?? "Couldn't save.");
+    onSaved();
+  }
+
+  const stepBtn = "flex h-9 w-9 items-center justify-center rounded-[10px] bg-neutral-100 text-neutral-900 transition hover:bg-neutral-200 disabled:opacity-40";
+  return (
+    <div className="space-y-3.5 bg-neutral-50/60 px-4 py-4">
+      <div className="flex items-center gap-3.5">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-violet-50">
+          <Ticket className="h-5 w-5 text-violet-700" />
+        </span>
+        <span className="flex-1 text-[15px] font-semibold text-neutral-900">Guest limit</span>
+        <div className="flex items-center gap-1 rounded-xl bg-white p-1 shadow-[0_1px_2px_rgba(0,0,0,0.06)]">
+          <button type="button" aria-label="Fewer" onClick={() => step(-1)} disabled={busy || num <= min} className={stepBtn}>
+            <Minus className="h-4 w-4" strokeWidth={2.4} />
+          </button>
+          <input
+            value={n}
+            onChange={(e) => setN(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            inputMode="numeric"
+            aria-label="Guest limit"
+            className="w-12 bg-transparent text-center text-[20px] font-bold text-neutral-900 outline-none"
+          />
+          <button type="button" aria-label="More" onClick={() => step(1)} disabled={busy} className={stepBtn}>
+            <Plus className="h-4 w-4" strokeWidth={2.4} />
+          </button>
+        </div>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={wait}
+        onClick={() => setWait((w) => !w)}
+        className="flex w-full items-center gap-3 pl-[62px] text-left"
+      >
+        <span className="flex-1">
+          <span className="block text-[14px] font-semibold text-neutral-900">Waitlist when full</span>
+          <span className="block text-[12px] text-neutral-500">Next in line moves in if someone drops</span>
+        </span>
+        <span className={`relative h-[26px] w-11 shrink-0 rounded-full transition-colors ${wait ? "bg-neutral-900" : "bg-neutral-300"}`}>
+          <span className={`absolute top-[3px] h-5 w-5 rounded-full bg-white shadow transition-all ${wait ? "left-[21px]" : "left-[3px]"}`} />
+        </span>
+      </button>
+      {error && <p className="pl-[62px] text-[13px] font-medium text-rose-600">{error}</p>}
+      <div className="pl-[62px]">
+        <EditorButtons
+          busy={busy}
+          onCancel={onCancel}
+          onSave={() => save(num)}
+          left={
+            capacity !== null ? (
+              <button
+                type="button"
+                onClick={() => save(null)}
+                disabled={busy}
+                className="text-[13px] font-semibold text-fuchsia-700 hover:underline"
+              >
+                Remove limit
               </button>
             ) : null
           }

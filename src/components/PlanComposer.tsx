@@ -392,62 +392,72 @@ export function PlanComposer() {
                 style={{ fieldSizing: "content" } as React.CSSProperties}
               />
             </label>
+            {showCost ? (
+              <div className="space-y-3 px-4 py-4">
+                <div className="flex items-center gap-3">
+                  <DollarSign className="h-[18px] w-[18px] shrink-0 text-neutral-500" />
+                  <label className="flex flex-1 items-baseline gap-1.5">
+                    <span className="text-[22px] font-bold text-neutral-900">$</span>
+                    <input
+                      value={cost}
+                      onChange={(e) => setCost(e.target.value)}
+                      inputMode="decimal"
+                      placeholder="0"
+                      autoFocus
+                      aria-label="Fee per person"
+                      className="w-20 bg-transparent text-[22px] font-bold text-neutral-900 outline-none placeholder:text-neutral-300"
+                    />
+                    <span className="text-sm text-neutral-500">per person</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCost(false);
+                      setCost("");
+                    }}
+                    aria-label="Remove fee"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pl-[30px]">
+                  <input
+                    value={venmo}
+                    onChange={(e) => setVenmo(e.target.value)}
+                    placeholder="Venmo @handle"
+                    aria-label="Venmo"
+                    className="h-10 min-w-0 rounded-xl bg-neutral-100 px-3 text-[14px] outline-none placeholder:text-neutral-400"
+                  />
+                  <input
+                    value={zelle}
+                    onChange={(e) => setZelle(e.target.value)}
+                    placeholder="Zelle email/phone"
+                    aria-label="Zelle"
+                    className="h-10 min-w-0 rounded-xl bg-neutral-100 px-3 text-[14px] outline-none placeholder:text-neutral-400"
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCost(true)}
+                className="flex h-14 w-full items-center gap-3 px-4 text-left"
+              >
+                <DollarSign className="h-[18px] w-[18px] shrink-0 text-neutral-500" />
+                <span className="text-[15px] text-neutral-400">Add a fee (optional)</span>
+              </button>
+            )}
           </div>
-
-          {showCost && (
-            <section className="space-y-3 rounded-2xl bg-white p-4 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold text-neutral-500">Fee</span>
-                <button
-                  type="button"
-                  onClick={() => setShowCost(false)}
-                  aria-label="Remove fee"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <label className="flex items-baseline gap-2">
-                <span className="text-[30px] font-bold text-neutral-900">$</span>
-                <input
-                  value={cost}
-                  onChange={(e) => setCost(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="0"
-                  aria-label="Amount per person"
-                  className="w-24 bg-transparent text-[30px] font-bold text-neutral-900 outline-none placeholder:text-neutral-300"
-                />
-                <span className="text-sm text-neutral-500">per person</span>
-              </label>
-              <div className="grid grid-cols-2 gap-2 border-t border-neutral-100 pt-3">
-                <input
-                  value={venmo}
-                  onChange={(e) => setVenmo(e.target.value)}
-                  placeholder="Venmo @handle"
-                  aria-label="Venmo"
-                  className="h-10 rounded-xl bg-neutral-100 px-3 text-[14px] outline-none placeholder:text-neutral-400"
-                />
-                <input
-                  value={zelle}
-                  onChange={(e) => setZelle(e.target.value)}
-                  placeholder="Zelle email/phone"
-                  aria-label="Zelle"
-                  className="h-10 rounded-xl bg-neutral-100 px-3 text-[14px] outline-none placeholder:text-neutral-400"
-                />
-              </div>
-            </section>
-          )}
 
           <AddTiles
             solo={!group}
             tiles={[
-              ...(!showCost ? [{ key: "fee", label: "Fee", icon: DollarSign, on: false }] : []),
               ...(!voting
                 ? EXTRAS.map((x) => ({ key: x.key, label: x.label, icon: x.icon, on: extras.includes(x.key) }))
                 : []),
             ]}
             onTap={(key) => {
-              if (key === "fee") return setShowCost(true);
               setExtras((x) => (x.includes(key) ? x.filter((k) => k !== key) : [...x, key]));
             }}
           />
