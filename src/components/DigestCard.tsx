@@ -8,6 +8,7 @@ import type { DigestCardData, CardStatus } from "@/lib/types";
 import { eventDateLabel } from "@/lib/dateLabel";
 import { addScoutedToCalendar } from "@/app/deck-actions";
 import { setFeePaid } from "@/app/event-actions";
+import { InviteNoteThread } from "./InviteNoteThread";
 import { clientTimeZone, isoFromLocal, localFromIso } from "@/lib/localDateTime";
 import { busyFromCard, findConflict, formatBusyRange, type BusyInterval } from "@/lib/conflicts";
 import { DateTimeField, type DTValue } from "./DateTimeField";
@@ -73,6 +74,7 @@ function senderLine(card: DigestCardData): { name: string; verb: string } | null
       return { name: card.senderName, verb: "is finding a time" };
     case "event_update":
       if (card.nudge) return { name: card.hostName, verb: "needs an answer" };
+      if (card.announce) return { name: card.hostName, verb: "posted an announcement" };
       return { name: card.hostName, verb: card.changeSummary === "Plan canceled" ? "canceled the plan" : card.changeSummary === "You're in" ? "has a spot for you" : "updated the plan" };
     case "broadcast_bundle":
       return { name: card.senderName, verb: `posted ${card.count} events` };
@@ -233,6 +235,12 @@ function Hook({ card }: { card: DigestCardData }) {
       return <RichText text={card.summary} className={`line-clamp-2 ${muted}`} />;
     case "social_invite":
       return card.note ? <RichText text={card.note} className={`line-clamp-2 ${muted}`} /> : null;
+    case "event_update":
+      return card.announce && card.changeSummary ? (
+        <p className="whitespace-pre-wrap rounded-[14px] bg-fuchsia-100 px-3.5 py-3 text-[15px] font-semibold leading-snug text-neutral-900">
+          {card.changeSummary}
+        </p>
+      ) : null;
     case "calendar_radar":
       return card.details ? <p className={`line-clamp-2 ${muted}`}>{card.details}</p> : null;
     case "time_poll":
@@ -324,9 +332,14 @@ function Extras({ card, busy }: { card: DigestCardData; busy: BusyInterval[] }) 
   if (card.type === "social_invite") {
     const conflict = conflictMeta(card, busy, clientTimeZone());
     const team = teamLine(card);
-    if (!card.location && !conflict && !(card.fee && card.fee > 0) && !team) return null;
+    const thread =
+      card.privateNote && card.eventId && card.senderId ? (
+        <InviteNoteThread eventId={card.eventId} otherId={card.senderId} otherName={card.senderName} />
+      ) : null;
+    if (!card.location && !conflict && !(card.fee && card.fee > 0) && !team) return thread ? <div className="mt-4">{thread}</div> : null;
     return (
       <div className="mt-4 space-y-2.5">
+        {thread}
         {team && (
           <p
             className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-[14px] font-semibold ${

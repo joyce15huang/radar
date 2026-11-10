@@ -97,6 +97,7 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         teamName: c.teamName ?? undefined,
         teamKind: c.teamKind === "practice" ? "practice" : c.teamKind === "game" ? "game" : undefined,
         maybe: c.maybe === "true",
+        privateNote: c.privateNote === "true",
       };
 
     case "calendar_radar":
@@ -121,6 +122,7 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         changeSummary: c.changeSummary ?? undefined,
         eventId: row.event_id ?? undefined,
         nudge: c.nudge === "true",
+        announce: c.announce === "true",
       };
 
     case "social_post": {

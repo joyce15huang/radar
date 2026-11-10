@@ -259,7 +259,9 @@ export async function inviteToEvent(input: {
   const hostName =
     event.creator_id === actorId ? inviterName : await profileName(admin, event.creator_id);
   const content = buildInviteContent({ event, senderName: inviterName, hostName });
-  if (input.note?.trim()) content.note = input.note.trim();
+  const note = input.note?.trim().slice(0, 2000) || "";
+  // A note with the invite is PRIVATE: a thread only the inviter and each invitee see.
+  if (note) content.privateNote = "true";
 
   if (targets.length > 0) {
     const rows = targets.map((rid) => ({
@@ -271,8 +273,44 @@ export async function inviteToEvent(input: {
       status: "pending",
       event_id: event!.id,
     }));
-    const { error } = await admin.from("cards").insert(rows);
+    const { data: inserted, error } = await admin.from("cards").insert(rows).select("id");
     if (error) return { ok: false, error: error.message };
+    if (note) {
+      const { error: noteErr } = await admin
+        .from("event_comments")
+        .insert(targets.map((rid) => ({ event_id: event!.id, author_id: actorId, body: note, private_to: rid })));
+      if (noteErr) {
+        // Before migration 0044: fall back to the note riding on the card itself.
+        const fallback: Record<string, string> = { ...content, note };
+        delete fallback.privateNote;
+        const ids = (inserted ?? []).map((r) => r.id as string);
+        if (ids.length) await admin.from("cards").update({ content: fallback }).in("id", ids);
+      }
+    }
+  }
+
+  // A note to someone ALREADY on the plan still reaches them, as a private thread.
+  const alreadyThere = note
+    ? recipientIds.filter((id) => id !== actorId && id !== event!.creator_id && already.has(id))
+    : [];
+  if (alreadyThere.length) {
+    const { error: noteErr } = await admin
+      .from("event_comments")
+      .insert(alreadyThere.map((rid) => ({ event_id: event!.id, author_id: actorId, body: note, private_to: rid })));
+    if (!noteErr) {
+      const { data: theirs } = await admin
+        .from("cards")
+        .select("id, content")
+        .eq("event_id", event.id)
+        .eq("type", "social_invite")
+        .in("user_id", alreadyThere);
+      for (const c of theirs ?? []) {
+        const prev = (c.content ?? {}) as Record<string, string>;
+        if (prev.privateNote === "true") continue;
+        // (Today shows the thread with whoever sent their invite; others' notes live on the plan page.)
+        await admin.from("cards").update({ content: { ...prev, privateNote: "true" } }).eq("id", c.id as string);
+      }
+    }
   }
 
   revalidatePath("/today");
@@ -436,7 +474,10 @@ export async function updateHostEvent(input: {
     .delete()
     .eq("event_id", input.eventId)
     .eq("type", "event_update")
-    .eq("status", "pending");
+    .eq("status", "pending")
+    // Announcements and team nudges are their own cards — an edit doesn't replace them.
+    .is("content->>announce", null)
+    .is("content->>nudge", null);
   if (guestIds.length) {
     const updateRows = guestIds.map((rid) => {
       const content: Record<string, string> = {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Heart, Check, Loader2, LayoutGrid } from "lucide-react";
-import { toggleLike, getPostSocial, addToGrid } from "@/app/photo-actions";
+import { X, Heart, Loader2 } from "lucide-react";
+import { toggleLike, getPostSocial } from "@/app/photo-actions";
 import { savePhoto } from "@/lib/savePhoto";
 
 export interface ViewerPhoto {
@@ -15,26 +15,22 @@ export interface ViewerPhoto {
 
 const keyOf = (p: { postId: string; index: number }) => `${p.postId}:${p.index}`;
 
-/** Full-screen, in-app photo viewer for an event album: swipe, like, save, add to grid. */
+/** Full-screen, in-app photo viewer for an event album: swipe, like, save. */
 export function PhotoViewer({
   photos,
   start,
   title,
-  pinned,
-  onPinned,
   onClose,
 }: {
   photos: ViewerPhoto[];
   start: number;
   title?: string;
-  pinned: Set<string>;
-  onPinned: (keys: string[]) => void;
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(start);
   const stripRef = useRef<HTMLDivElement>(null);
   const [social, setSocial] = useState<Record<string, { likes: number; liked: boolean }>>({});
-  const [busy, setBusy] = useState<null | "pin" | "save">(null);
+  const [busy, setBusy] = useState<null | "save">(null);
   const [error, setError] = useState<string | null>(null);
   const photo = photos[index];
 
@@ -76,7 +72,6 @@ export function PhotoViewer({
 
   if (!photo) return null;
   const s = social[photo.postId];
-  const isPinned = pinned.has(keyOf(photo));
 
   async function like() {
     const cur = social[photo.postId] ?? { likes: 0, liked: false };
@@ -87,14 +82,6 @@ export function PhotoViewer({
       setSocial((m) => ({ ...m, [photo.postId]: cur }));
       setError(r.error ?? null);
     }
-  }
-  async function pin() {
-    setBusy("pin");
-    setError(null);
-    const r = await addToGrid([{ postId: photo.postId, index: photo.index }]);
-    setBusy(null);
-    if (!r.ok) return setError(r.error ?? "Couldn't add that.");
-    onPinned([keyOf(photo)]);
   }
   async function save() {
     setBusy("save");
@@ -159,27 +146,14 @@ export function PhotoViewer({
           </button>
         </div>
         {error && <p className="text-center text-sm text-rose-300">{error}</p>}
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            type="button"
-            onClick={save}
-            disabled={busy !== null}
-            className="flex h-[50px] items-center justify-center gap-2 rounded-[14px] bg-white/[0.12] text-[15px] font-semibold"
-          >
-            {busy === "save" && <Loader2 className="h-4 w-4 animate-spin" />} Save to phone
-          </button>
-          <button
-            type="button"
-            onClick={pin}
-            disabled={busy !== null || isPinned}
-            className={`flex h-[50px] items-center justify-center gap-2 rounded-[14px] text-[15px] font-semibold ${
-              isPinned ? "bg-white/[0.12] text-white/80" : "bg-fuchsia-700 text-white"
-            }`}
-          >
-            {busy === "pin" ? <Loader2 className="h-4 w-4 animate-spin" /> : isPinned ? <Check className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
-            {isPinned ? "On your grid" : "Add to my grid"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy !== null}
+          className="flex h-[50px] w-full items-center justify-center gap-2 rounded-[14px] bg-white/[0.12] text-[15px] font-semibold"
+        >
+          {busy === "save" && <Loader2 className="h-4 w-4 animate-spin" />} Save to phone
+        </button>
       </div>
     </div>
   );

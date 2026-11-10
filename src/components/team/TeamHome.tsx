@@ -12,6 +12,9 @@ import {
   DollarSign,
   Link2,
   Loader2,
+  Lock,
+  MessageCircle,
+  ArrowUpRight,
   Settings2,
   UserPlus,
   X,
@@ -24,9 +27,11 @@ import {
   setDuesPaid,
   setMemberRole,
   updateTeam,
+  updateTeamBoard,
 } from "@/app/team-actions";
 import { canManage, dollars, type TeamDetail, type TeamEventSummary, type TeamRole } from "@/lib/teams";
 import { HeadcountBar } from "./HeadcountBar";
+import { chatClosesAt } from "@/lib/chat";
 import { fieldCls } from "./CreateTeamForm";
 
 const card = "rounded-[18px] bg-white shadow-[0_8px_24px_rgba(80,50,35,0.07)]";
@@ -37,7 +42,9 @@ const ROLE_LABEL: Record<TeamRole, string> = {
   sub: "Sub",
 };
 
-export function TeamHome({ team, me, tz }: { team: TeamDetail; me: string; tz: string }) {
+type Threads = Record<string, { count: number; last: { author: string; body: string } | null }>;
+
+export function TeamHome({ team, me, tz, threads }: { team: TeamDetail; me: string; tz: string; threads: Threads }) {
   const router = useRouter();
   const manager = canManage(team.myRole);
   const [next, ...later] = team.upcoming;
@@ -113,6 +120,28 @@ export function TeamHome({ team, me, tz }: { team: TeamDetail; me: string; tz: s
             </ul>
           )}
         </section>
+      )}
+
+      <TeamBoard team={team} manager={manager} />
+
+      <GameThreads team={team} tz={tz} threads={threads} />
+
+      {team.chatUrl && (
+        <a
+          href={team.chatUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${card} flex items-center gap-3.5 px-4 py-3.5 transition hover:bg-neutral-50`}
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-100">
+            <MessageCircle className="h-[19px] w-[19px] text-green-700" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-neutral-900">Team group chat</span>
+            <span className="block truncate text-[13px] text-neutral-500">Opens {hostLabel(team.chatUrl)} — for everything else</span>
+          </span>
+          <ArrowUpRight className="h-4 w-4 shrink-0 text-neutral-500" />
+        </a>
       )}
 
       {team.duesCents ? <Dues team={team} me={me} manager={manager} /> : null}
@@ -218,6 +247,128 @@ function EventRow({ ev, tz }: { ev: TeamEventSummary; tz: string }) {
         {mineLabel && <span className="block text-[11px] font-medium text-neutral-400">{mineLabel}</span>}
       </span>
     </Link>
+  );
+}
+
+/* ------------------------------- notes board ------------------------------ */
+
+function TeamBoard({ team, manager }: { team: TeamDetail; manager: boolean }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [notes, setNotes] = useState(team.notes ?? "");
+  const [chatUrl, setChatUrl] = useState(team.chatUrl ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!team.notes && !manager) return null;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await updateTeamBoard(team.id, { notes, chatUrl });
+    setBusy(false);
+    if (!res.ok) return setError(res.error ?? "Couldn't save.");
+    setEditing(false);
+    router.refresh();
+  }
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Team notes</h2>
+        {manager && !editing && (
+          <button type="button" onClick={() => setEditing(true)} className="text-[14px] font-semibold text-fuchsia-800 hover:underline">
+            {team.notes ? "Edit" : "Add"}
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <form onSubmit={save} className={`${card} space-y-3 p-4`}>
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-semibold text-neutral-600">Pinned for everyone</span>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={5}
+              maxLength={2000}
+              placeholder={"Jersey: white home, blue away\nArrive 15 min early\nParking: Kezar lot off Frederick St"}
+              className="w-full resize-y rounded-xl border border-neutral-200 bg-white px-3.5 py-3 text-[15px] leading-relaxed text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-400 focus:ring-2 focus:ring-neutral-200"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-[13px] font-semibold text-neutral-600">Your team&rsquo;s group chat link (optional)</span>
+            <input className={fieldCls} value={chatUrl} onChange={(e) => setChatUrl(e.target.value)} placeholder="chat.whatsapp.com/…" inputMode="url" />
+          </label>
+          {error && <p className="text-[13px] font-medium text-rose-700">{error}</p>}
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy} className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-neutral-900 text-[15px] font-semibold text-white disabled:opacity-60">
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />} Save
+            </button>
+            <button type="button" onClick={() => setEditing(false)} className="h-11 rounded-xl px-4 text-[14px] font-semibold text-neutral-600">
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : team.notes ? (
+        <div className={`${card} space-y-2 p-4`}>
+          <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-neutral-900">{team.notes}</p>
+          {team.notesBy && <p className="text-[12px] font-medium text-neutral-500">Updated by {team.notesBy}</p>}
+        </div>
+      ) : (
+        <p className="rounded-2xl border border-dashed border-neutral-300 px-4 py-4 text-[14px] text-neutral-500">
+          Pin what everyone keeps asking — jersey colours, where to park, the dues link.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/* ------------------------------- game threads ----------------------------- */
+
+function GameThreads({ team, tz, threads }: { team: TeamDetail; tz: string; threads: Threads }) {
+  const rows = [
+    ...team.upcoming.slice(0, 4).map((e) => ({ e, past: false })),
+    ...team.recent.map((e) => ({ e, past: true })),
+  ];
+  if (rows.length === 0) return null;
+  return (
+    <section className="space-y-2.5">
+      <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Game threads</h2>
+      <ul className={`${card} divide-y divide-neutral-100`}>
+        {rows.map(({ e, past }) => {
+          const t = threads[e.id];
+          const d = e.startsAt ? new Date(e.startsAt) : null;
+          const rel = relativeDay(e.startsAt, tz);
+          const closesAt = chatClosesAt(e.startsAt);
+          const closed = past && !!closesAt && Date.parse(closesAt) < Date.now();
+          return (
+            <li key={e.id}>
+              <Link href={`/event/${e.id}#chat`} className="flex items-center gap-3 px-4 py-3 transition hover:bg-neutral-50">
+                <span className="flex w-11 shrink-0 flex-col items-center">
+                  <span className={`text-[10px] font-bold tracking-wide ${rel === "Today" ? "text-fuchsia-800" : past ? "text-neutral-400" : "text-neutral-500"}`}>
+                    {rel === "Today" ? "TODAY" : d ? d.toLocaleDateString("en-US", { weekday: "short", timeZone: tz }).toUpperCase() : ""}
+                  </span>
+                  <span className={`text-[17px] font-bold ${past ? "text-neutral-400" : "text-neutral-900"}`}>
+                    {d ? d.toLocaleDateString("en-US", { day: "numeric", timeZone: tz }) : ""}
+                  </span>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className={`block truncate text-[15px] font-semibold ${past ? "text-neutral-500" : "text-neutral-900"}`}>{e.title}</span>
+                  <span className={`block truncate text-[13px] ${past ? "text-neutral-400" : "text-neutral-500"}`}>
+                    {closed
+                      ? `Closed · ${t?.count ?? 0} ${(t?.count ?? 0) === 1 ? "message" : "messages"}`
+                      : t?.last
+                        ? `${t.last.author}: ${t.last.body}`
+                        : "No messages"}
+                  </span>
+                </span>
+                {closed && <Lock className="h-3.5 w-3.5 shrink-0 text-neutral-400" aria-label="Closed" />}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -619,6 +770,20 @@ function LeaveTeam({ teamId, me }: { teamId: string; me: string }) {
 }
 
 /* --------------------------------- helpers -------------------------------- */
+
+function hostLabel(url: string): string {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, "");
+    if (/whatsapp/.test(h)) return "WhatsApp";
+    if (/discord/.test(h)) return "Discord";
+    if (/groupme/.test(h)) return "GroupMe";
+    if (/slack/.test(h)) return "Slack";
+    if (/t\.me|telegram/.test(h)) return "Telegram";
+    return h;
+  } catch {
+    return "your chat";
+  }
+}
 
 function monogram(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);

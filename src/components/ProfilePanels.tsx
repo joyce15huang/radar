@@ -1,45 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { LayoutGrid, CalendarClock, Users } from "lucide-react";
-import { ProfileWall, type ProfilePost } from "./ProfileWall";
+import { Shield, CalendarClock, Users } from "lucide-react";
 import { ProfileEvents, type HostedEventItem } from "./ProfileEvents";
+import { ProfileTeams } from "./ProfileTeams";
+import type { ProfileTeam } from "@/app/team-actions";
 import { FriendsClient } from "./FriendsClient";
 import { EmptyState } from "./LibraryWall";
 import type { FriendEntry, FriendRequestEntry } from "@/lib/friends";
 
-type Tab = "posts" | "events" | "friends";
+type Tab = "teams" | "events" | "friends";
 
 /** Profile subtabs. Your own profile adds a Friends tab (requests + friends +
- *  add-by-username); visitors see only Posts | Events. */
+ *  add-by-username); visitors see Teams | Events. */
 export function ProfilePanels({
-  posts,
+  teams,
   events,
   isOwner,
   friends = [],
   requests = [],
-  initialTab = "posts",
-  ownerName,
+  initialTab = "teams",
 }: {
-  posts: ProfilePost[];
+  teams: ProfileTeam[];
   events: HostedEventItem[];
   isOwner: boolean;
   friends?: FriendEntry[];
   requests?: FriendRequestEntry[];
   initialTab?: Tab;
-  ownerName?: string;
 }) {
-  const [tab, setTab] = useState<Tab>(isOwner ? initialTab : "posts");
+  const [tab, setTab] = useState<Tab>(isOwner ? initialTab : "teams");
 
   return (
     <div className="mt-1">
       <div className="flex border-b border-neutral-200 dark:border-neutral-800">
         <TabButton
-          active={tab === "posts"}
-          onClick={() => setTab("posts")}
-          icon={<LayoutGrid className="h-4 w-4" strokeWidth={2} />}
-          label="Posts"
-          count={posts.length}
+          active={tab === "teams"}
+          onClick={() => setTab("teams")}
+          icon={<Shield className="h-4 w-4" strokeWidth={2} />}
+          label="Teams"
+          count={teams.length}
         />
         <TabButton
           active={tab === "events"}
@@ -61,8 +60,8 @@ export function ProfilePanels({
       </div>
 
       <div className="pt-4">
-        {tab === "posts" ? (
-          <ProfileWall posts={posts} isOwner={isOwner} ownerName={ownerName} />
+        {tab === "teams" ? (
+          <ProfileTeams teams={teams} isOwner={isOwner} />
         ) : tab === "events" ? (
           events.length === 0 ? (
             <EmptyState

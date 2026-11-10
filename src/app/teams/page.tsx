@@ -16,8 +16,8 @@ export default async function TeamsPage() {
       <div className="mx-auto min-h-dvh max-w-xl px-4 pb-16 pt-3 sm:px-6 sm:pt-6">
         <div className="mb-2 flex h-12 items-center">
           <Link
-            href="/calendar"
-            aria-label="Back to Calendar"
+            href="/me"
+            aria-label="Back to Profile"
             className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-neutral-900 transition hover:bg-neutral-200/60"
           >
             <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />

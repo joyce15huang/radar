@@ -94,6 +94,8 @@ export interface SocialInviteCard extends CardBase {
   teamMin?: number | null;
   /** Answered "Maybe" on a team event. */
   maybe?: boolean;
+  /** The inviter sent a private note with this invite (shown + replyable on the card). */
+  privateNote?: boolean;
 }
 
 export interface NewsScoutCard extends CardBase {
@@ -176,6 +178,8 @@ export interface EventUpdateCard extends CardBase {
   eventId?: string;
   /** A captain's "Are you in?" nudge for a team game. */
   nudge?: boolean;
+  /** A host / captain announcement; the text is in changeSummary. */
+  announce?: boolean;
 }
 
 export interface TimePollCard extends CardBase {

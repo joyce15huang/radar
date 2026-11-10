@@ -29,6 +29,7 @@ export function InviteComposer({
   const router = useRouter();
   const [friends, setFriends] = useState<FriendOption[]>([]);
   const [selected, setSelected] = useState<FriendOption[]>([]);
+  const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<number | null>(null);
@@ -75,6 +76,7 @@ export function InviteComposer({
     const res = await inviteToEvent({
       ...(target.kind === "source" ? { sourceCardId: target.cardId } : { eventId: target.kind === "event" ? target.eventId : undefined }),
       recipients: list,
+      note,
     });
     setPending(false);
     if (!res.ok) return setError(res.error ?? "Couldn't send the invite.");
@@ -149,6 +151,25 @@ export function InviteComposer({
         ) : (
           <div className="space-y-3">
             <FriendPicker friends={friends} selected={selected} onChange={setSelected} />
+            {selected.length > 0 && (
+              <label className="block space-y-1.5">
+                <span className="text-[13px] font-semibold text-neutral-600">
+                  A note just for {selected.length === 1 ? (selected[0].username ? `@${selected[0].username}` : "them") : "each of them"}{" "}
+                  <span className="font-medium text-neutral-400">(optional)</span>
+                </span>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  maxLength={2000}
+                  placeholder="You said you wanted to try this!"
+                  className="w-full resize-none rounded-[18px_18px_18px_6px] bg-fuchsia-100 px-3.5 py-3 text-[15px] leading-snug text-neutral-900 outline-none placeholder:text-neutral-500 focus:ring-2 focus:ring-fuchsia-200"
+                />
+                <span className="block text-[12px] text-neutral-500">
+                  Only {selected.length === 1 ? "they see" : "each person sees"} it. Replies come back to you, not the group.
+                </span>
+              </label>
+            )}
             <button
               type="button"
               onClick={send}

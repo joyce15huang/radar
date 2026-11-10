@@ -3,13 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
 import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
-import { type ProfilePost } from "@/components/ProfileWall";
-import { pinnedGridItems, mergeGrid } from "@/lib/gridPins";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
 import { type HostedEventItem } from "@/components/ProfileEvents";
 import { ProfilePanels } from "@/components/ProfilePanels";
-import { PostComposer } from "@/components/PostComposer";
 import { listFriends, listIncomingRequests } from "@/app/friends-actions";
+import { listTeamsOf } from "@/app/team-actions";
 import { publicImageUrl } from "@/lib/storage";
 
 interface EventRow {
@@ -18,29 +16,6 @@ interface EventRow {
   event_time: string | null;
   starts_at: string | null;
   location: string | null;
-}
-
-interface PostRow {
-  id: string;
-  image_path: string | null;
-  image_paths: string[] | null;
-  caption: string | null;
-  created_at: string;
-  taken_on: string | null;
-  event_id: string | null;
-  events: { title: string } | { title: string }[] | null;
-}
-
-/** All photo URLs on a post: prefer the array, fall back to the legacy single. */
-function postImageUrls(row: { image_paths: string[] | null; image_path: string | null }): string[] {
-  const paths = row.image_paths?.length ? row.image_paths : row.image_path ? [row.image_path] : [];
-  return paths.map((p) => publicImageUrl(p)).filter((u): u is string => !!u);
-}
-
-function eventTitleOf(e: PostRow["events"]): string | null {
-  if (!e) return null;
-  if (Array.isArray(e)) return e[0]?.title ?? null;
-  return e.title ?? null;
 }
 
 export default async function MyProfilePage({
@@ -54,18 +29,14 @@ export default async function MyProfilePage({
   const wantsFriends = ["people", "friends"].includes((await searchParams).tab ?? "");
 
   const admin = createAdminClient();
-  const [{ data: profile }, { data: postRows }, { data: eventRows }, friends, requests] =
+  const [{ data: profile }, teams, { data: eventRows }, friends, requests] =
     await Promise.all([
       supabase
         .from("profiles")
         .select("display_name, bio, links, avatar_path, verified")
         .eq("id", actorId)
         .maybeSingle(),
-      supabase
-        .from("posts")
-        .select("*, events(title)")
-        .eq("author_id", actorId)
-        .order("created_at", { ascending: false }),
+      listTeamsOf(actorId),
       admin
         .from("events")
         .select("id, title, event_time, starts_at, location")
@@ -81,24 +52,6 @@ export default async function MyProfilePage({
     startsAt: e.starts_at ?? null,
     location: e.location ?? null,
   }));
-
-  const ownPosts: ProfilePost[] = (postRows ?? [])
-    // Event-album photos only show here once added to the grid (0039 on_grid).
-    .filter((p) => (p as { on_grid?: boolean | null }).on_grid !== false)
-    .map((p) => {
-    const row = p as unknown as PostRow;
-    return {
-      id: row.id,
-      imageUrls: postImageUrls(row),
-      caption: row.caption,
-      createdAt: row.created_at,
-      takenOn: row.taken_on,
-      eventTitle: eventTitleOf(row.events),
-      eventId: row.event_id,
-    };
-  });
-
-  const posts = mergeGrid(ownPosts, await pinnedGridItems(admin, actorId));
 
   const links = (profile?.links ?? {}) as ProfileHeaderData["links"];
   const header: ProfileHeaderData = {
@@ -120,16 +73,14 @@ export default async function MyProfilePage({
         <TabNav />
         <ProfileHeader data={header} />
         <ProfilePanels
-          posts={posts}
+          teams={teams}
           events={hosted}
           isOwner
-          ownerName={header.name}
           friends={friends}
           requests={requests}
-          initialTab={wantsFriends ? "friends" : "posts"}
+          initialTab={wantsFriends ? "friends" : "teams"}
         />
       </div>
-      <PostComposer />
     </main>
   );
 }

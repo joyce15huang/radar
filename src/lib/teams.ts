@@ -76,7 +76,15 @@ export interface TeamDetail {
   myRole: TeamRole;
   members: TeamMember[];
   upcoming: TeamEventSummary[];
+  /** The last few played, newest first (for their read-only threads). */
+  recent: TeamEventSummary[];
   pastCount: number;
+  /** Pinned notes board (0044). */
+  notes: string | null;
+  notesUpdatedAt: string | null;
+  notesBy: string | null;
+  /** Link out to the team's existing group chat. */
+  chatUrl: string | null;
 }
 
 /** The answer a card's status + content stand for. */

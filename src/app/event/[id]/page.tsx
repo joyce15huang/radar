@@ -9,8 +9,7 @@ import { PeopleSection } from "@/components/PeopleSection";
 import { CarpoolSection } from "@/components/CarpoolSection";
 import { LedgerSection } from "@/components/LedgerSection";
 import { TaskSection } from "@/components/TaskSection";
-import { CommentsSection } from "@/components/CommentsSection";
-import { Section } from "@/components/Section";
+import { PlanChat } from "@/components/PlanChat";
 import { EventFeePanel } from "@/components/EventFeePanel";
 import { PostComposer } from "@/components/PostComposer";
 import { AddSectionBar } from "@/components/SectionControls";
@@ -129,7 +128,6 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   // Photos = posts linked to this event, from anyone on it.
   let photos: ViewerPhoto[] = [];
   let photoPeople = 0;
-  let pinnedKeys: string[] = [];
   if (isPast) {
     const { data: postRows } = await admin
       .from("posts")
@@ -145,19 +143,12 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
     }[];
     photoPeople = new Set(rows.map((r) => r.author_id)).size;
     const authorIds = [...new Set(rows.map((r) => r.author_id))];
-    const [{ data: authors }, { data: pins }] = await Promise.all([
-      authorIds.length
-        ? admin.from("profiles").select("id, username, display_name").in("id", authorIds)
-        : Promise.resolve({ data: [] as { id: string; username: string | null; display_name: string | null }[] }),
-      // Which of these are already on MY grid (0040; empty before it runs).
-      rows.length
-        ? admin.from("grid_pins").select("post_id, image_index").eq("user_id", actorId).in("post_id", rows.map((r) => r.id))
-        : Promise.resolve({ data: [] as { post_id: string; image_index: number }[] }),
-    ]);
+    const { data: authors } = authorIds.length
+      ? await admin.from("profiles").select("id, username, display_name").in("id", authorIds)
+      : { data: [] as { id: string; username: string | null; display_name: string | null }[] };
     const nameOf = new Map(
       (authors ?? []).map((a) => [a.id as string, (a.display_name as string) || (a.username as string) || "someone"]),
     );
-    pinnedKeys = (pins ?? []).map((p) => `${p.post_id}:${p.image_index}`);
     photos = rows
       .flatMap((r) => {
         const paths = r.image_paths?.length ? r.image_paths : r.image_path ? [r.image_path] : [];
@@ -221,11 +212,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
       allowReinvite={allowReinvite}
     />
   );
-  const chat = (
-    <Section title="Chat">
-      <CommentsSection eventId={id} />
-    </Section>
-  );
+  const chat = <PlanChat eventId={id} />;
 
   return (
     <main className="min-h-dvh bg-linen">
@@ -254,7 +241,6 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 photos={photos}
                 people={photoPeople}
                 title={title}
-                initialPinned={pinnedKeys}
                 addButton={<PostComposer eventId={id} eventDate={eventDay} variant="button" />}
               />
 

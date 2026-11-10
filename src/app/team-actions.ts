@@ -392,12 +392,35 @@ export async function getTeam(teamId: string): Promise<TeamDetail | null> {
   );
   const upcoming = events.map((e) => summarize(e, answers.get(e.id) ?? [], team.min_players, actor.actorId));
 
-  const { count: pastCount } = await admin
-    .from("events")
-    .select("id", { count: "exact", head: true })
-    .eq("team_id", teamId)
-    .is("canceled_at", null)
-    .lt("starts_at", new Date(Date.now() - 3 * 3_600_000).toISOString());
+  const pastCut = new Date(Date.now() - 3 * 3_600_000).toISOString();
+  const [{ count: pastCount }, { data: pastRows }, board] = await Promise.all([
+    admin
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("team_id", teamId)
+      .is("canceled_at", null)
+      .lt("starts_at", pastCut),
+    admin
+      .from("events")
+      .select(EVENT_COLS)
+      .eq("team_id", teamId)
+      .is("canceled_at", null)
+      .lt("starts_at", pastCut)
+      .order("starts_at", { ascending: false })
+      .limit(3),
+    // Notes board + chat link (0044; absent before it runs).
+    admin.from("teams").select("notes, notes_updated_at, notes_by, chat_url").eq("id", teamId).maybeSingle(),
+  ]);
+  const past = (pastRows ?? []) as TeamEventRow[];
+  const pastAnswers = await answersFor(
+    admin,
+    past.map((e) => e.id),
+  );
+  const recent = past.map((e) => summarize(e, pastAnswers.get(e.id) ?? [], team.min_players, actor.actorId));
+  const b = (board.error ? null : board.data) as
+    | { notes: string | null; notes_updated_at: string | null; notes_by: string | null; chat_url: string | null }
+    | null;
+  const notesBy = b?.notes_by ? ((await namesFor(admin, [b.notes_by])).get(b.notes_by)?.name ?? null) : null;
 
   return {
     id: team.id,
@@ -409,7 +432,12 @@ export async function getTeam(teamId: string): Promise<TeamDetail | null> {
     myRole,
     members,
     upcoming,
+    recent,
     pastCount: pastCount ?? 0,
+    notes: b?.notes ?? null,
+    notesUpdatedAt: b?.notes_updated_at ?? null,
+    notesBy,
+    chatUrl: b?.chat_url ?? null,
   };
 }
 
@@ -966,4 +994,67 @@ export async function headcountsForEvents(
     };
   }
   return out;
+}
+
+export interface ProfileTeam {
+  id: string;
+  name: string;
+  blurb: string | null;
+  role: TeamRole;
+  players: number;
+  /** The viewer is on this team too (so its page will open for them). */
+  viewerOn: boolean;
+}
+
+/** Teams someone is on, for their profile. Anyone signed in may look. Empty before 0043. */
+export async function listTeamsOf(profileId: string): Promise<ProfileTeam[]> {
+  const actor = await getActor();
+  if (!actor || !profileId) return [];
+  const admin = createAdminClient();
+  const { data: rows, error } = await admin.from("team_members").select("team_id, role").eq("member_id", profileId);
+  if (error || !rows?.length) return [];
+  const ids = rows.map((r) => r.team_id as string);
+  const [{ data: teams }, { data: all }] = await Promise.all([
+    admin.from("teams").select("id, name, blurb").in("id", ids),
+    admin.from("team_members").select("team_id, member_id, role").in("team_id", ids),
+  ]);
+  const roleBy = new Map(rows.map((r) => [r.team_id as string, r.role as TeamRole]));
+  return ((teams ?? []) as { id: string; name: string; blurb: string | null }[])
+    .map((t) => {
+      const members = (all ?? []).filter((m) => m.team_id === t.id);
+      return {
+        id: t.id,
+        name: t.name,
+        blurb: t.blurb,
+        role: roleBy.get(t.id) ?? "player",
+        players: members.filter((m) => m.role !== "sub").length,
+        viewerOn: members.some((m) => m.member_id === actor.actorId),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Captains edit the pinned notes board and the link out to the team's group chat. */
+export async function updateTeamBoard(teamId: string, input: { notes: string; chatUrl: string }): Promise<TeamResult> {
+  const m = await managed(teamId);
+  if ("error" in m) return { ok: false, error: m.error };
+  const notes = input.notes.trim().slice(0, 2000) || null;
+  let chatUrl: string | null = input.chatUrl.trim() || null;
+  if (chatUrl) {
+    if (!/^https?:\/\//i.test(chatUrl)) chatUrl = `https://${chatUrl}`;
+    try {
+      const u = new URL(chatUrl);
+      if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("bad");
+      chatUrl = u.toString().slice(0, 300);
+    } catch {
+      return { ok: false, error: "That chat link doesn't look right." };
+    }
+  }
+  const { error } = await m.admin
+    .from("teams")
+    .update({ notes, chat_url: chatUrl, notes_updated_at: new Date().toISOString(), notes_by: m.actor.actorId })
+    .eq("id", teamId);
+  if (error) return { ok: false, error: /notes|chat_url/.test(error.message) ? "Run migration 0044_chat in Supabase to turn on team notes." : error.message };
+  revalidatePath(`/team/${teamId}`);
+  return { ok: true, teamId };
 }
