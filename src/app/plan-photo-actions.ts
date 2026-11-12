@@ -25,6 +25,7 @@ interface EvRow {
   starts_at: string | null;
   is_broadcast?: boolean | null;
   canceled_at?: string | null;
+  source_url?: string | null;
 }
 
 /**
@@ -107,6 +108,7 @@ export async function listPastPlans(profileId: string): Promise<PastPlan[]> {
     went.set(g.event_id as string, s);
   }
 
+  const sourced = new Set(events.filter((e) => !!e.source_url).map((e) => e.id));
   return events
     .map((e) => ({
       id: e.id,
@@ -119,8 +121,10 @@ export async function listPastPlans(profileId: string): Promise<PastPlan[]> {
       coverUrl: photos.get(e.id)?.cover ?? null,
       canOpen: mine.has(e.id),
     }))
+    // A web find you saved for yourself isn't a plan you went on — unless it has photos or company.
+    .filter((p) => !(p.photoCount === 0 && p.went <= 1 && sourced.has(p.id)))
     .sort((a, b) => Date.parse(b.startsAt) - Date.parse(a.startsAt))
-    .slice(0, 60);
+    .slice(0, 80);
 }
 
 export interface PlanSpan {

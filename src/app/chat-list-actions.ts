@@ -241,3 +241,40 @@ export async function chatsBadge(): Promise<number> {
     return 0;
   }
 }
+
+export interface SoloPlan {
+  id: string;
+  title: string;
+  startsAt: string;
+}
+
+/** Upcoming plans the caller hosts with nobody else on them yet — the ones an invite would turn into a chat. */
+export async function listSoloUpcoming(): Promise<SoloPlan[]> {
+  const actor = await getActor();
+  if (!actor) return [];
+  const me = actor.actorId;
+  const admin = createAdminClient();
+  const { data: evs } = await admin
+    .from("events")
+    .select("*")
+    .eq("creator_id", me)
+    .gt("starts_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(40);
+  const mine = ((evs ?? []) as { id: string; title?: string | null; starts_at: string; canceled_at?: string | null; is_broadcast?: boolean | null }[]).filter(
+    (e) => !e.canceled_at && !e.is_broadcast,
+  );
+  if (mine.length === 0) return [];
+  const { data: cards } = await admin
+    .from("cards")
+    .select("event_id")
+    .eq("type", "social_invite")
+    .neq("status", "dismissed")
+    .neq("user_id", me)
+    .in("event_id", mine.map((e) => e.id));
+  const shared = new Set((cards ?? []).map((c) => c.event_id as string));
+  return mine
+    .filter((e) => !shared.has(e.id))
+    .slice(0, 3)
+    .map((e) => ({ id: e.id, title: e.title ?? "Plan", startsAt: e.starts_at }));
+}

@@ -19,7 +19,7 @@ import { cardVisual } from "./cardVisual";
 /** Terminal statuses a card can resolve to from the deck. */
 export type ResolveStatus = Extract<CardStatus, "saved" | "dismissed" | "accepted">;
 
-type Scouted = Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
+export type Scouted = Extract<DigestCardData, { type: "news_scout" | "time_window" }>;
 type Invite = Extract<DigestCardData, { type: "social_invite" }>;
 
 interface DigestCardProps {
@@ -123,7 +123,7 @@ function Hero({ card, fill = false }: { card: DigestCardData; fill?: boolean }) 
 
 /* -------------------------------- main row -------------------------------- */
 
-interface Tile {
+export interface Tile {
   top: string;
   day: string;
   time: string | null;
@@ -152,7 +152,7 @@ function tileFor(iso: string | undefined | null, fallbackTime?: string | null): 
   return { top: top.toUpperCase(), day: String(d), time };
 }
 
-function cardTile(card: DigestCardData): Tile | null {
+export function cardTile(card: DigestCardData): Tile | null {
   switch (card.type) {
     case "time_window":
       return tileFor(card.opensAt ?? card.expiresAt, card.windowLabel);
@@ -166,7 +166,7 @@ function cardTile(card: DigestCardData): Tile | null {
 }
 
 /** A text "when" for cards without a clean date tile. */
-function whenText(card: DigestCardData): string | null {
+export function whenText(card: DigestCardData): string | null {
   switch (card.type) {
     case "time_window": {
       const w = card.windowLabel?.trim() || eventDateLabel(card.opensAt, card.expiresAt);
@@ -547,7 +547,7 @@ function ScoutFooter({ card, onAdded }: { card: Scouted; onAdded: () => void }) 
 
 /** Inline picker, prefilled from the scouted date (or a best guess). Confirming
  *  turns the card into an owned, editable personal event. */
-function CalendarPicker({ card, onAdded, onCancel }: { card: Scouted; onAdded: () => void; onCancel: () => void }) {
+export function CalendarPicker({ card, onAdded, onCancel }: { card: Scouted; onAdded: () => void; onCancel: () => void }) {
   const [value, setValue] = useState<DTValue>(() => initialPickerValue(card));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -592,7 +592,7 @@ function CalendarPicker({ card, onAdded, onCancel }: { card: Scouted; onAdded: (
 
 /* --------------------------------- helpers -------------------------------- */
 
-function safeHostname(url: string): string {
+export function safeHostname(url: string): string {
   try {
     return new URL(url).hostname.replace("www.", "");
   } catch {

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { DigestCard } from "@/components/DigestCard";
 import { updateCardStatus } from "@/app/feed-actions";
 import type { DigestCardData } from "@/lib/types";
+import { ScoutCard } from "./ScoutCard";
 
 /** Things the scout found on the web for you, shown in Explore under the posts. */
 export function ScoutList({ cards }: { cards: DigestCardData[] }) {
@@ -12,24 +12,21 @@ export function ScoutList({ cards }: { cards: DigestCardData[] }) {
   if (shown.length === 0) return null;
   const hide = (id: string) => setGone((s) => new Set(s).add(id));
   return (
-    <section className="space-y-3">
-      <h3 className="text-[12px] font-bold uppercase tracking-wide text-neutral-500">Found on the web for you</h3>
-      {shown.map((c) => (
-        <div key={c.id} className="space-y-1.5">
-          {/* Adding to the calendar already updates the card server-side. */}
-          <DigestCard card={c} onResolve={() => hide(c.id)} />
-          <button
-            type="button"
-            onClick={() => {
+    <>
+      {shown.map((c) =>
+        c.type === "news_scout" || c.type === "time_window" ? (
+          <ScoutCard
+            key={c.id}
+            card={c}
+            // Adding to the calendar already updates the card server-side.
+            onAdded={() => hide(c.id)}
+            onDismiss={() => {
               hide(c.id);
               void updateCardStatus(c.id, "dismissed");
             }}
-            className="mx-auto block h-9 px-3 text-[13px] font-semibold text-neutral-500 hover:text-neutral-800"
-          >
-            Not for me
-          </button>
-        </div>
-      ))}
-    </section>
+          />
+        ) : null,
+      )}
+    </>
   );
 }

@@ -49,7 +49,7 @@ export function AddPhotos({
 }: {
   eventId?: string;
   eventTitle?: string;
-  variant?: "button" | "tile";
+  variant?: "button" | "tile" | "link";
 }) {
   const router = useRouter();
   const input = useRef<HTMLInputElement>(null);
@@ -204,7 +204,18 @@ export function AddPhotos({
           void pick(files);
         }}
       />
-      {variant === "tile" ? (
+      {variant === "link" ? (
+        <button
+          type="button"
+          onClick={() => input.current?.click()}
+          disabled={sorting}
+          aria-label={`Add photos to ${eventTitle ?? "this plan"}`}
+          className="flex h-11 shrink-0 items-center gap-1.5 px-2.5 text-[13px] font-bold text-fuchsia-800 disabled:opacity-60"
+        >
+          {sorting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+          Add
+        </button>
+      ) : variant === "tile" ? (
         <button
           type="button"
           onClick={() => input.current?.click()}

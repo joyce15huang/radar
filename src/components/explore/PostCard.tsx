@@ -9,6 +9,7 @@ import { createDirectEvent } from "@/app/poll-actions";
 import { formatWhen } from "@/lib/localDateTime";
 import { initials } from "@/lib/cardTypes";
 import type { ExplorePost, PostDate } from "@/lib/explore";
+import { DateLead } from "./DateLead";
 
 export function whenOf(d: PostDate, tz: string): string {
   return formatWhen(d.startsAt, tz, !d.allDay);
@@ -124,12 +125,28 @@ export function PostCard({ post, tz }: { post: ExplorePost; tz: string }) {
             )}
           </span>
         )}
-        <span className="block space-y-1.5 px-3.5 pt-3">
-          <span className="block text-[17px] font-bold leading-tight tracking-tight text-neutral-900">{post.title}</span>
-          {post.body && <span className="line-clamp-2 block text-[14px] leading-snug text-neutral-700">{post.body}</span>}
-          <span className="block text-[13px] font-semibold text-neutral-600">
-            {multi ? `${post.dates.length} dates · next: ${next.label}, ${whenOf(next, tz)}` : [whenOf(next, tz), next.location].filter(Boolean).join(" · ")}
-          </span>
+        <span className="block space-y-2 px-3.5 pt-3">
+          {post.imageUrls[0] ? (
+            <>
+              <span className="block text-[14px] font-bold text-fuchsia-800">
+                {multi ? `${post.dates.length} dates · next ${whenOf(next, tz)}` : whenOf(next, tz)}
+              </span>
+              <span className="block text-[17px] font-bold leading-tight tracking-tight text-neutral-900">{post.title}</span>
+              {(multi ? next.label : next.location) && (
+                <span className="block truncate text-[14px] font-semibold text-neutral-900">{multi ? next.label : next.location}</span>
+              )}
+            </>
+          ) : (
+            // No photo: lead with the date, time and place instead of an empty picture.
+            <DateLead
+              top={new Date(next.startsAt).toLocaleDateString("en-US", { weekday: "short", timeZone: tz })}
+              day={new Date(next.startsAt).toLocaleDateString("en-US", { day: "numeric", timeZone: tz })}
+              when={multi ? `${post.dates.length} dates · next ${whenOf(next, tz)}` : whenOf(next, tz)}
+              title={post.title}
+              where={multi ? [next.label, next.location].filter(Boolean).join(" · ") : next.location}
+            />
+          )}
+          {post.body && <span className="line-clamp-3 block text-[14px] leading-relaxed text-neutral-700">{post.body}</span>}
           {post.addedBy.length > 0 && (
             <span className="block text-[13px] font-semibold text-violet-700">
               {post.addedBy.slice(0, 2).join(" and ")}

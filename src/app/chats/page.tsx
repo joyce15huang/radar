@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { BellOff, ChevronRight, Lock, Megaphone, UserPlus } from "lucide-react";
 import { getActor } from "@/lib/actor";
 import { TabNav } from "@/components/TabNav";
-import { listChats, type ChatRow } from "@/app/chat-list-actions";
+import { listChats, listSoloUpcoming, type ChatRow } from "@/app/chat-list-actions";
 import { inboxCount } from "@/app/inbox-actions";
 import { serverTimeZone } from "@/lib/tz";
 import { initials } from "@/lib/cardTypes";
@@ -27,6 +27,7 @@ export default async function ChatsPage() {
   const [rows, requests, tz] = await Promise.all([listChats(), inboxCount(), serverTimeZone()]);
   const open = rows.filter((r) => !r.closed);
   const closed = rows.filter((r) => r.closed && r.count > 0).slice(0, 20);
+  const solo = open.length === 0 ? await listSoloUpcoming() : [];
 
   return (
     <main className="min-h-dvh bg-linen">
@@ -50,9 +51,57 @@ export default async function ChatsPage() {
         )}
 
         {open.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-neutral-300 px-4 py-10 text-center text-[14px] text-neutral-500">
-            No chats yet. Each plan with other people gets one — it closes two days after the plan.
-          </p>
+          <>
+            <section className={`${card} px-5 pb-5 pt-6 text-center`}>
+              <div aria-hidden className="mx-auto mb-4 w-[210px] space-y-1.5">
+                <div className="mr-auto w-fit rounded-2xl rounded-bl-md bg-neutral-100 px-3 py-1.5 text-[13px] text-neutral-700">Who&rsquo;s driving?</div>
+                <div className="ml-auto w-fit rounded-2xl rounded-br-md bg-fuchsia-700 px-3 py-1.5 text-[13px] text-white">I can take three</div>
+              </div>
+              <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Chats start with a plan</h2>
+              <p className="mx-auto mt-1 max-w-[290px] text-[14px] leading-relaxed text-neutral-600">
+                Invite someone and the plan gets its own chat for sorting out the details. It closes two days after.
+              </p>
+              <Link
+                href="/plan/new"
+                className="mt-4 inline-flex h-11 items-center justify-center rounded-full bg-neutral-900 px-6 text-[15px] font-bold text-white"
+              >
+                Make a plan
+              </Link>
+            </section>
+            {solo.length > 0 && (
+              <section className="mt-6 space-y-2">
+                <h2 className="text-[13px] font-bold text-neutral-500">Or bring someone to a plan you have</h2>
+                <ul className={`${card} divide-y divide-neutral-100`}>
+                  {solo.map((p) => {
+                    const d = new Date(p.startsAt);
+                    return (
+                      <li key={p.id}>
+                        <Link href={`/event/${p.id}`} className="flex items-center gap-3 px-3.5 py-2.5">
+                          <span className="flex h-[46px] w-[42px] shrink-0 flex-col items-center justify-center rounded-xl bg-neutral-200">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-600">
+                              {d.toLocaleDateString("en-US", { month: "short", timeZone: tz })}
+                            </span>
+                            <span className="text-[16px] font-bold leading-none text-neutral-900">
+                              {d.toLocaleDateString("en-US", { day: "numeric", timeZone: tz })}
+                            </span>
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[15px] font-semibold text-neutral-900">{p.title}</span>
+                            <span className="block text-[13px] text-neutral-500">
+                              {d.toLocaleDateString("en-US", { weekday: "short", timeZone: tz })} · just you so far
+                            </span>
+                          </span>
+                          <span className="flex h-9 shrink-0 items-center gap-1 rounded-full bg-fuchsia-100 px-3.5 text-[13px] font-bold text-fuchsia-800">
+                            <UserPlus className="h-3.5 w-3.5" /> Invite
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+          </>
         ) : (
           <ul className={`${card} divide-y divide-neutral-100`}>
             {open.map((r) => (
