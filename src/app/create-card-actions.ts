@@ -174,16 +174,36 @@ export async function createPost(input: {
   takenOn?: string | null;
   /** false = event-album only (added from an event page); not on the profile grid. */
   onGrid?: boolean;
+  /** false = don't tell the other guests (later batches of one upload). */
+  notify?: boolean;
 }): Promise<CreatePostResult> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
   const { actorId } = actor;
 
-  const paths = (input.imagePaths ?? []).filter(Boolean);
+  // Only the caller's own uploads, a sane number per post.
+  const paths = (input.imagePaths ?? []).filter((p) => p && p.startsWith(`${actor.userId}/`) && !p.includes("..")).slice(0, 12);
   if (paths.length === 0) return { ok: false, error: "Missing image." };
 
   const admin = createAdminClient();
   const eventId = input.eventId || null;
+
+  // Photos can only go into the album of a plan you're on.
+  if (eventId) {
+    const [{ data: ev }, { data: mine }] = await Promise.all([
+      admin.from("events").select("creator_id").eq("id", eventId).maybeSingle(),
+      admin
+        .from("cards")
+        .select("id")
+        .eq("event_id", eventId)
+        .eq("user_id", actorId)
+        .eq("type", "social_invite")
+        .eq("status", "accepted")
+        .limit(1),
+    ]);
+    if (!ev) return { ok: false, error: "That plan no longer exists." };
+    if (ev.creator_id !== actorId && !mine?.length) return { ok: false, error: "You're not on that plan." };
+  }
 
   const row = {
     author_id: actorId,
@@ -219,12 +239,14 @@ export async function createPost(input: {
       onEvent = !!myCard && myCard.length > 0;
     }
 
-    if (event && onEvent) {
+    if (event && onEvent && input.notify !== false) {
+      // Tell the people who went — not those who declined or never answered.
       const { data: inviteCards } = await admin
         .from("cards")
         .select("user_id")
         .eq("event_id", eventId)
-        .eq("type", "social_invite");
+        .eq("type", "social_invite")
+        .eq("status", "accepted");
 
       const attendeeIds = Array.from(
         new Set((inviteCards ?? []).map((c) => c.user_id as string)),

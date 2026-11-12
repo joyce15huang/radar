@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowUp, Loader2, Lock, Megaphone, Trash2 } from "lucide-react";
 import { getChat, postChat, sendPrivateNote, deleteComment } from "@/app/comment-actions";
+import { markChatRead } from "@/app/chat-list-actions";
 import type { ChatMessage, ChatView, PrivateThread } from "@/lib/chat";
 import { initials } from "@/lib/cardTypes";
 
@@ -30,24 +31,42 @@ function closesLabel(iso: string): string {
  * notes you have with one person. It closes 48h after the plan and stays
  * readable (folded) in the recap. No notifications — only announcements reach Today.
  */
-export function PlanChat({ eventId }: { eventId: string }) {
+export function PlanChat({
+  eventId,
+  show = "all",
+  bare = false,
+}: {
+  eventId: string;
+  /** "all" (plan page), "group" only, or one private thread by the other person's id. */
+  show?: string;
+  /** Drop the "Chat" heading (the Chats screen has its own header). */
+  bare?: boolean;
+}) {
   const [view, setView] = useState<ChatView | null | "loading">("loading");
   const reload = useCallback(() => {
     getChat(eventId)
-      .then(setView)
+      .then((v) => {
+        setView(v);
+        if (!v) return;
+        // Opening a thread reads it.
+        const threads =
+          show === "all" ? ["group", ...v.privateThreads.map((t) => t.otherId)] : show === "group" ? ["group"] : [show];
+        void markChatRead(eventId, threads);
+      })
       .catch(() => setView(null));
-  }, [eventId]);
+  }, [eventId, show]);
   useEffect(() => {
     reload();
   }, [reload]);
 
   if (view === "loading") return <div className={`${card} h-24 animate-pulse`} />;
   if (!view) return null;
+  const group = show === "all" || show === "group";
 
   return (
     <section id="chat" className="scroll-mt-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Chat</h2>
+      <div className={`flex items-center justify-between gap-2 ${bare ? "justify-end" : ""}`}>
+        {!bare && <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Chat</h2>}
         {view.closed ? (
           <span className="inline-flex h-[26px] items-center gap-1.5 rounded-lg bg-neutral-100 px-2.5 text-[12px] font-bold text-neutral-600">
             <Lock className="h-3 w-3" strokeWidth={2.4} /> Closed
@@ -57,13 +76,20 @@ export function PlanChat({ eventId }: { eventId: string }) {
         ) : null}
       </div>
 
-      {view.announcements.length > 0 && <Announcements items={view.announcements} />}
+      {group && view.announcements.length > 0 && <Announcements items={view.announcements} />}
 
-      {view.closed ? <ClosedThread messages={view.messages} /> : <OpenThread eventId={eventId} view={view} onChange={reload} />}
+      {group &&
+        (view.closed ? (
+          <ClosedThread messages={view.messages} startOpen={bare} />
+        ) : (
+          <OpenThread eventId={eventId} view={view} onChange={reload} />
+        ))}
 
-      {view.privateThreads.map((t) => (
-        <PrivateBox key={t.otherId} eventId={eventId} thread={t} closed={view.closed} onChange={reload} />
-      ))}
+      {view.privateThreads
+        .filter((t) => show === "all" || show === t.otherId)
+        .map((t) => (
+          <PrivateBox key={t.otherId} eventId={eventId} thread={t} closed={view.closed} onChange={reload} />
+        ))}
     </section>
   );
 }
@@ -234,8 +260,8 @@ function OpenThread({ eventId, view, onChange }: { eventId: string; view: ChatVi
   );
 }
 
-function ClosedThread({ messages }: { messages: ChatMessage[] }) {
-  const [open, setOpen] = useState(false);
+function ClosedThread({ messages, startOpen = false }: { messages: ChatMessage[]; startOpen?: boolean }) {
+  const [open, setOpen] = useState(startOpen);
   if (messages.length === 0) return null;
   return (
     <div className={`${card} overflow-hidden`}>

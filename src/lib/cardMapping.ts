@@ -109,6 +109,8 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         startsAt: c.startsAt ?? undefined,
         location: c.location ?? undefined,
         details: c.details ?? undefined,
+        fromName: c.fromName ?? undefined,
+        postId: c.postId ?? undefined,
       };
 
     case "event_update":

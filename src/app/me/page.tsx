@@ -1,85 +1,63 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { Menu } from "lucide-react";
 import { getActor } from "@/lib/actor";
-import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
-import { type HostedEventItem } from "@/components/ProfileEvents";
-import { ProfilePanels } from "@/components/ProfilePanels";
+import { ProfileStats } from "@/components/ProfileStats";
+import { PastPlansGrid } from "@/components/PastPlansGrid";
 import { listFriends, listIncomingRequests } from "@/app/friends-actions";
 import { listTeamsOf } from "@/app/team-actions";
+import { listPastPlans } from "@/app/plan-photo-actions";
 import { publicImageUrl } from "@/lib/storage";
+import { serverTimeZone } from "@/lib/tz";
 
-interface EventRow {
-  id: string;
-  title: string | null;
-  event_time: string | null;
-  starts_at: string | null;
-  location: string | null;
-}
-
-export default async function MyProfilePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string }>;
-}) {
+export default async function MyProfilePage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const actor = await getActor();
   if (!actor) redirect("/login");
   const { supabase, actorId } = actor;
-  const wantsFriends = ["people", "friends"].includes((await searchParams).tab ?? "");
+  // Old links to the Friends subtab.
+  if (["people", "friends"].includes((await searchParams).tab ?? "")) redirect("/friends");
 
-  const admin = createAdminClient();
-  const [{ data: profile }, teams, { data: eventRows }, friends, requests] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select("display_name, bio, links, avatar_path, verified")
-        .eq("id", actorId)
-        .maybeSingle(),
-      listTeamsOf(actorId),
-      admin
-        .from("events")
-        .select("id, title, event_time, starts_at, location")
-        .eq("creator_id", actorId),
-      listFriends(),
-      listIncomingRequests(),
-    ]);
+  const [{ data: profile }, teams, friends, requests, plans, tz] = await Promise.all([
+    supabase.from("profiles").select("display_name, bio, links, avatar_path, verified").eq("id", actorId).maybeSingle(),
+    listTeamsOf(actorId),
+    listFriends(),
+    listIncomingRequests(),
+    listPastPlans(actorId),
+    serverTimeZone(),
+  ]);
 
-  const hosted: HostedEventItem[] = ((eventRows ?? []) as EventRow[]).map((e) => ({
-    id: e.id,
-    title: e.title ?? "Event",
-    when: e.event_time ?? "",
-    startsAt: e.starts_at ?? null,
-    location: e.location ?? null,
-  }));
-
-  const links = (profile?.links ?? {}) as ProfileHeaderData["links"];
   const header: ProfileHeaderData = {
-    name:
-      profile?.display_name ||
-      actor.activeProfile.username ||
-      actor.userEmail?.split("@")[0] ||
-      "You",
+    name: profile?.display_name || actor.activeProfile.username || actor.userEmail?.split("@")[0] || "You",
     verified: profile?.verified ?? false,
     bio: profile?.bio ?? null,
     avatarUrl: publicImageUrl(profile?.avatar_path),
-    links,
+    links: (profile?.links ?? {}) as ProfileHeaderData["links"],
   };
 
   return (
-    <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-44 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
+    <main className="min-h-dvh bg-linen">
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-3 sm:px-6 sm:pt-8">
         <TabNav />
+        <div className="mb-1 flex justify-end">
+          <Link
+            href="/profile"
+            aria-label="Settings"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-neutral-900 transition hover:bg-neutral-200/60"
+          >
+            <Menu className="h-5 w-5" />
+          </Link>
+        </div>
         <ProfileHeader data={header} />
-        <ProfilePanels
-          teams={teams}
-          events={hosted}
-          isOwner
-          friends={friends}
-          requests={requests}
-          initialTab={wantsFriends ? "friends" : "teams"}
+        <ProfileStats
+          stats={[
+            { value: plans.filter((p) => p.hosted).length, label: "plans hosted" },
+            { value: friends.length, label: friends.length === 1 ? "friend" : "friends", href: "/friends", dot: requests.length > 0 },
+            { value: teams.length, label: teams.length === 1 ? "team" : "teams", href: "/teams" },
+          ]}
         />
+        <PastPlansGrid plans={plans} isOwner tz={tz} />
       </div>
     </main>
   );

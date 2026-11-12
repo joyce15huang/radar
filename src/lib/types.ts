@@ -150,6 +150,9 @@ export interface CalendarRadarCard extends CardBase {
   startsAt?: string;
   location?: string;
   details?: string;
+  /** Added from a post with dates: who posted it, and which post. */
+  fromName?: string;
+  postId?: string;
 }
 
 export interface SocialPostCard extends CardBase {

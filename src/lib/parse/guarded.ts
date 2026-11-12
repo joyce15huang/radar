@@ -13,13 +13,14 @@ export type GuardedParse = { ok: true; events: ParsedEvent[] } | { ok: false; er
 export async function guardedParse(
   userId: string,
   text: string,
-  opts: { tz: string; multiple: boolean; season?: SeasonParseOpts },
+  opts: { tz: string; multiple: boolean; season?: SeasonParseOpts; list?: boolean },
 ): Promise<GuardedParse> {
-  const screened = opts.season ? screenSeasonText(text, SEASON_TEXT_CAP) : screenEventText(text);
+  const long = !!opts.season || !!opts.list;
+  const screened = long ? screenSeasonText(text, SEASON_TEXT_CAP) : screenEventText(text);
   if (!screened.ok) return { ok: false, error: screened.reason };
 
   // Season results are keyed separately so a cached plan parse is never reused for one.
-  const norm = (opts.season ? "season:" : "") + normalizePlanText(screened.text);
+  const norm = (opts.season ? "season:" : opts.list ? "list:" : "") + normalizePlanText(screened.text);
   const usage = await checkParseUsage(userId, norm);
   if (usage.kind === "cached") return { ok: true, events: usage.events };
   if (usage.kind === "limited") return { ok: false, error: RATE_LIMITED_MESSAGE };
@@ -31,6 +32,7 @@ export async function guardedParse(
       nowContext: nowContext(opts.tz),
       multiple: opts.multiple,
       season: opts.season,
+      list: opts.list,
     });
   } catch (e) {
     console.error("[parse] model call failed", e);
@@ -38,6 +40,9 @@ export async function guardedParse(
   }
   await recordParseUsage(userId, norm, result.isPlan ? result.events : null);
   if (!result.isPlan || result.events.length === 0)
-    return { ok: false, error: opts.season ? NOT_A_SCHEDULE : NOT_A_PLAN_MESSAGE };
+    return {
+      ok: false,
+      error: opts.season ? NOT_A_SCHEDULE : opts.list ? "Couldn't find any dates in that — add them below." : NOT_A_PLAN_MESSAGE,
+    };
   return { ok: true, events: result.events };
 }

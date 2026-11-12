@@ -1,22 +1,16 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { ChevronLeft } from "lucide-react";
 import { getActor } from "@/lib/actor";
-import { AccountBar } from "@/components/AccountBar";
 import { TabNav } from "@/components/TabNav";
 import { ProfileHeader, type ProfileHeaderData } from "@/components/ProfileHeader";
-import { type HostedEventItem } from "@/components/ProfileEvents";
-import { ProfilePanels } from "@/components/ProfilePanels";
+import { ProfileTeams } from "@/components/ProfileTeams";
+import { PastPlansGrid } from "@/components/PastPlansGrid";
 import { getFriendState, mutualFriends } from "@/app/friends-actions";
 import { listTeamsOf } from "@/app/team-actions";
+import { listPastPlans } from "@/app/plan-photo-actions";
 import { publicImageUrl } from "@/lib/storage";
-
-interface EventRow {
-  id: string;
-  title: string | null;
-  event_time: string | null;
-  starts_at: string | null;
-  location: string | null;
-}
+import { serverTimeZone } from "@/lib/tz";
 
 export default async function UserProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -32,41 +26,43 @@ export default async function UserProfilePage({ params }: { params: Promise<{ id
     .maybeSingle();
   if (!profile) notFound();
 
-  const admin = createAdminClient();
-  const [teams, { data: eventRows }, friendState, mutuals] = await Promise.all([
+  const [teams, friendState, mutuals, plans, tz] = await Promise.all([
     listTeamsOf(id),
-    admin
-      .from("events")
-      .select("id, title, event_time, starts_at, location")
-      .eq("creator_id", id),
     getFriendState(id),
     mutualFriends(id),
+    listPastPlans(id),
+    serverTimeZone(),
   ]);
 
-  const hosted: HostedEventItem[] = ((eventRows ?? []) as EventRow[]).map((e) => ({
-    id: e.id,
-    title: e.title ?? "Event",
-    when: e.event_time ?? "",
-    startsAt: e.starts_at ?? null,
-    location: e.location ?? null,
-  }));
-
-  const links = (profile.links ?? {}) as ProfileHeaderData["links"];
   const header: ProfileHeaderData = {
     name: profile.display_name || profile.email?.split("@")[0] || "Someone",
     verified: profile.verified ?? false,
     bio: profile.bio ?? null,
     avatarUrl: publicImageUrl(profile.avatar_path),
-    links,
+    links: (profile.links ?? {}) as ProfileHeaderData["links"],
   };
 
   return (
-    <main className="min-h-dvh bg-neutral-50 dark:bg-neutral-950">
-      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-8 sm:px-6 sm:pt-12">
-        <AccountBar email={actor.userEmail ?? undefined} link={{ href: "/profile", label: "Settings" }} />
+    <main className="min-h-dvh bg-linen">
+      <div className="mx-auto min-h-dvh max-w-xl px-4 pb-28 pt-3 sm:px-6 sm:pt-8">
         <TabNav />
+        <div className="mb-1 flex h-11 items-center">
+          <Link
+            href="/me"
+            aria-label="Back"
+            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full text-neutral-900 transition hover:bg-neutral-200/60"
+          >
+            <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+          </Link>
+        </div>
         <ProfileHeader data={header} targetId={id} friendState={friendState} mutuals={mutuals} />
-        <ProfilePanels teams={teams} events={hosted} isOwner={false} />
+        {teams.length > 0 && (
+          <section className="mb-6 space-y-2.5">
+            <h2 className="text-[18px] font-bold tracking-tight text-neutral-900">Teams</h2>
+            <ProfileTeams teams={teams} isOwner={false} />
+          </section>
+        )}
+        <PastPlansGrid plans={plans} isOwner={false} tz={tz} />
       </div>
     </main>
   );

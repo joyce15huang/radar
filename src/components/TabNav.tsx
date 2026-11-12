@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Sparkles, User, Bell } from "lucide-react";
-import { inboxCount } from "@/app/inbox-actions";
+import { CalendarDays, Sparkles, User, MessageCircle } from "lucide-react";
+import { chatsBadge } from "@/app/chat-list-actions";
 
 const TABS = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/today", label: "Today", icon: Sparkles },
-  { href: "/inbox", label: "Inbox", icon: Bell },
+  { href: "/chats", label: "Chats", icon: MessageCircle },
   { href: "/me", label: "Profile", icon: User },
 ];
 
@@ -18,10 +18,10 @@ export function TabNav() {
   const pathname = usePathname();
   const [requests, setRequests] = useState(0);
 
-  // Inbox badge: event invites + friend requests waiting on you.
+  // Chats badge: unread messages + invites and friend requests waiting on you.
   useEffect(() => {
     let live = true;
-    inboxCount()
+    chatsBadge()
       .then((n) => live && setRequests(n))
       .catch(() => {});
     return () => {
@@ -38,10 +38,14 @@ export function TabNav() {
         {TABS.map((t) => {
           const active =
             t.href === "/me"
-                ? pathname.startsWith("/me") || pathname.startsWith("/library") || pathname.startsWith("/profile")
-                : pathname.startsWith(t.href);
+              ? ["/me", "/library", "/profile", "/friends", "/teams", "/team/", "/u/"].some((p) => pathname.startsWith(p))
+              : t.href === "/chats"
+                ? ["/chats", "/chat/", "/inbox"].some((p) => pathname.startsWith(p))
+                : t.href === "/today"
+                  ? pathname.startsWith("/today") || pathname.startsWith("/post/")
+                  : pathname.startsWith(t.href);
           const Icon = t.icon;
-          const showBadge = t.href === "/inbox" && requests > 0;
+          const showBadge = t.href === "/chats" && requests > 0;
           return (
             <Link
               key={t.href}
@@ -55,7 +59,7 @@ export function TabNav() {
                 <Icon className="h-[22px] w-[22px]" strokeWidth={active ? 2.2 : 1.9} />
                 {showBadge && (
                   <span
-                    aria-label={`${requests} waiting in your inbox`}
+                    aria-label={`${requests} unread or waiting`}
                     className="absolute -right-2.5 -top-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold leading-none text-white"
                   >
                     {requests > 9 ? "9+" : requests}

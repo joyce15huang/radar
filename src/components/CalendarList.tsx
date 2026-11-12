@@ -518,6 +518,9 @@ function EventRowInner({
           </p>
         )}
         {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
+        {card.type === "calendar_radar" && card.fromName && (
+          <p className="mt-0.5 truncate text-[13px] font-medium text-green-700">From {card.fromName}</p>
+        )}
         {openError && <p className="mt-0.5 text-[12px] font-medium text-rose-600">Couldn&rsquo;t open — try again</p>}
       </div>
     </>
@@ -631,7 +634,8 @@ function EventRowInner({
 /** Invites fuchsia (pale while unanswered) · your own plans sky · saved-from-Today amber. */
 function rowBar(card: EventCard): string {
   if (card.type === "social_invite") return card.status === "pending" ? "bg-fuchsia-300" : "bg-fuchsia-600";
-  return card.type === "calendar_radar" ? "bg-sky-600" : "bg-amber-500";
+  if (card.type === "calendar_radar") return card.fromName ? "bg-green-600" : "bg-sky-600";
+  return "bg-amber-500";
 }
 
 /** A small round icon button (label shows as a tooltip + screen-reader name). */
