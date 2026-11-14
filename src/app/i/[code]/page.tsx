@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const data = await load(code);
   if (!data) return { title: "Invite" };
   return {
-    title: `${data.ev.title ?? "You're invited"} · Digest`,
+    title: `${data.ev.title ?? "You're invited"} · Blip Club`,
     description: `${data.hostName} invited you${data.ev.event_time ? ` — ${data.ev.event_time}` : ""}.`,
   };
 }

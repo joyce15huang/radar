@@ -18,12 +18,11 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  applicationName: "Personal Daily Digest",
-  title: "Personal Daily Digest",
-  description:
-    "A calm, finite morning briefing. Clear the deck and you're caught up for the day.",
+  applicationName: "Blip Club",
+  title: "Blip Club",
+  description: "Plans with your people: your calendar, teams, chats and what's on your radar.",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "default", title: "Digest" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Blip Club" },
   formatDetection: { telephone: false },
   icons: {
     icon: [

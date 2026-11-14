@@ -33,7 +33,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ code: s
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Personal Daily Digest//Teams//EN",
+    "PRODID:-//Blip Club//Teams//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${esc(team.name as string)}`,

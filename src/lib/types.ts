@@ -1,4 +1,4 @@
-// Core domain types for the Personal Daily Digest (Pivot V1: "asynchronous social").
+// Core domain types for the Blip Club (Pivot V1: "asynchronous social").
 // The feed is now polymorphic — one Cards table, many card TYPES, each rendered
 // differently. This union is the single source of truth the UI renders against.
 

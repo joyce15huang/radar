@@ -6,6 +6,8 @@ import { fillUserDeck } from "@/lib/scout/persistDeck";
 import { serverTimeZone } from "@/lib/tz";
 import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
+import { cleanCity, cleanSubject, MAX_CITIES } from "@/lib/scout/safety";
+import { takeScoutRun, SCOUT_LIMITED_MESSAGE } from "@/lib/parse/usage";
 
 export interface GenState {
   status: "idle" | "done" | "error";
@@ -31,9 +33,10 @@ async function runFill(extra?: number): Promise<GenState> {
     .maybeSingle();
 
   const locs = (((prefs?.locations as string[] | null) ?? []) as string[])
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const sp = (prefs?.standing_prompt as string | null)?.trim();
+    .map((s) => cleanCity(s))
+    .filter(Boolean)
+    .slice(0, MAX_CITIES);
+  const sp = cleanSubject(prefs?.standing_prompt as string | null);
   const locations = locs.length ? locs : sp ? [sp] : [];
 
   if (locations.length === 0) {
@@ -42,6 +45,8 @@ async function runFill(extra?: number): Promise<GenState> {
       message: "Set your location first — the scout needs somewhere to look.",
     };
   }
+
+  if (!(await takeScoutRun(actorId))) return { status: "error", message: SCOUT_LIMITED_MESSAGE };
 
   try {
     const admin = createAdminClient();

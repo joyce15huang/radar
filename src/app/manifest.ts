@@ -2,10 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Personal Daily Digest",
-    short_name: "Digest",
-    description:
-      "A calm, finite morning briefing. Clear the deck and you're caught up for the day.",
+    name: "Blip Club",
+    short_name: "Blip Club",
+    description: "Plans with your people: your calendar, teams, chats and what's on your radar.",
     start_url: "/calendar",
     scope: "/",
     display: "standalone",

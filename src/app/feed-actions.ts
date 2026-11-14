@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { serverTimeZone } from "@/lib/tz";
-import { parseEvents, nowContext } from "@/lib/parse/schedule";
+import { guardedParse } from "@/lib/parse/guarded";
 import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
 import type { CardStatus } from "@/lib/types";
@@ -105,7 +105,7 @@ export async function updateEventCard(input: {
     when = formatWhen(input.startsAt, tz, !!input.hasTime);
   } else {
     try {
-      const events = await parseEvents(whenText, { nowContext: nowContext(tz), multiple: false });
+      const events = (await guardedWhen(actorId, whenText, tz));
       if (events[0]) {
         startsAt = events[0].startsAt ?? null;
         when = startsAt ? formatWhen(startsAt, tz, events[0].hasTime) : events[0].when || whenText;
@@ -146,4 +146,10 @@ export async function updateEventCard(input: {
 
   revalidatePath("/calendar");
   return { ok: true, when, startsAt };
+}
+
+/** A typed "when" → date, through the same screen and hourly limit as adding a plan. [] = keep the raw text. */
+async function guardedWhen(userId: string, text: string, tz: string) {
+  const r = await guardedParse(userId, text, { tz, multiple: false });
+  return r.ok ? r.events : [];
 }

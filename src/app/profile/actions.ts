@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fillUserDeck } from "@/lib/scout/persistDeck";
 import { getActor } from "@/lib/actor";
+import { cleanCity, MAX_CITIES } from "@/lib/scout/safety";
+import { takeScoutRun, SCOUT_LIMITED_MESSAGE } from "@/lib/parse/usage";
 
 export interface SaveState {
   status: "idle" | "saved" | "error";
@@ -24,7 +26,9 @@ function parseLocations(raw: unknown): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const item of arr) {
-    const v = String(item).trim().replace(/\s+/g, " ");
+    if (out.length >= MAX_CITIES) break;
+    // Place-name characters only, 60 max — this text is later read by the scout.
+    const v = typeof item === "string" ? cleanCity(item) : "";
     const k = v.toLowerCase();
     if (v && !seen.has(k)) {
       seen.add(k);
@@ -66,6 +70,11 @@ export async function savePreferences(
     { onConflict: "user_id" },
   );
   if (error) return { status: "error", message: error.message };
+
+  if (!(await takeScoutRun(actorId))) {
+    revalidatePath("/profile");
+    return { status: "saved", message: `Saved. ${SCOUT_LIMITED_MESSAGE}`, generated: 0 };
+  }
 
   try {
     const admin = createAdminClient();

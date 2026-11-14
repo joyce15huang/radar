@@ -1,3 +1,4 @@
+import { safeHttpUrl } from "./safety";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { generateDeck } from "./generateDeck";
 import { drawFromPool, upsertPoolEvents, topicFamily, type PoolEvent } from "./pool";
@@ -66,7 +67,7 @@ function poolEventToCardRow(userId: string, e: PoolEvent) {
       ...(e.place ? { place: e.place } : {}),
       ...(e.cost ? { cost: e.cost } : {}),
       actionLabel: e.action_label,
-      actionUrl: e.action_url,
+      actionUrl: safeHttpUrl(e.action_url),
       ...(isWindow
         ? { expiresAt: e.expires_at, opensAt: e.opens_at, windowLabel: e.window_label }
         : {}),

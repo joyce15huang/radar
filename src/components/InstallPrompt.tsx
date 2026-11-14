@@ -71,7 +71,7 @@ export function InstallPrompt() {
   return (
     <div className="mb-4 flex items-center gap-3 rounded-2xl bg-white p-3 pl-4 shadow-[0_8px_24px_rgba(80,50,35,0.08)]">
       <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-semibold text-neutral-900">Put Digest on your home screen</p>
+        <p className="text-[14px] font-semibold text-neutral-900">Put Blip Club on your home screen</p>
         {ios && !deferred && (
           <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[13px] text-neutral-600">
             Tap <Share className="inline h-3.5 w-3.5" aria-label="Share" /> then &ldquo;Add to Home Screen&rdquo;

@@ -4,7 +4,7 @@ import { capInfo, promoteFromWaitlist, NEEDS_0041 } from "@/lib/capacity";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { serverTimeZone } from "@/lib/tz";
-import { parseEvents, nowContext } from "@/lib/parse/schedule";
+import { guardedParse } from "@/lib/parse/guarded";
 import { normalizeUsername } from "@/lib/username";
 import { formatWhen } from "@/lib/localDateTime";
 import { getActor } from "@/lib/actor";
@@ -380,7 +380,7 @@ export async function updateHostEvent(input: {
     when = whenText || formatWhen(input.startsAt, tz, !!input.hasTime);
   } else {
     try {
-      const parsed = await parseEvents(whenText, { nowContext: nowContext(tz), multiple: false });
+      const parsed = (await guardedWhen(actorId, whenText, tz));
       if (parsed[0]) {
         startsAt = parsed[0].startsAt ?? null;
         when = startsAt ? formatWhen(startsAt, tz, parsed[0].hasTime) : parsed[0].when || whenText;
@@ -690,4 +690,10 @@ export async function setEventCapacity(
   revalidatePath("/calendar");
   revalidatePath("/today");
   return { ok: true, promoted };
+}
+
+/** A typed "when" → date, through the same screen and hourly limit as adding a plan. [] = keep the raw text. */
+async function guardedWhen(userId: string, text: string, tz: string) {
+  const r = await guardedParse(userId, text, { tz, multiple: false });
+  return r.ok ? r.events : [];
 }
