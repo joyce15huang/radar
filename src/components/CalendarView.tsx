@@ -5,6 +5,7 @@ import type { DigestCardData } from "@/lib/types";
 import { cardIso, dayInTz } from "@/lib/calendarSort";
 import { ScheduleQuickAdd } from "./ScheduleQuickAdd";
 import { CalendarList } from "./CalendarList";
+import { addDays, type Trip } from "@/lib/itinerary";
 
 type Tab = "upcoming" | "past";
 
@@ -21,17 +22,19 @@ export function CalendarView({
   past,
   tz,
   viewerId,
+  trips = {},
 }: {
   upcoming: DigestCardData[];
   past: DigestCardData[];
   tz: string;
   viewerId: string;
+  trips?: Record<string, Trip>;
 }) {
   const [tab, setTab] = useState<Tab>("upcoming");
 
   return (
     <>
-      <WeekStrip cards={upcoming} tz={tz} onPick={() => setTab("upcoming")} />
+      <WeekStrip cards={upcoming} tz={tz} trips={trips} onPick={() => setTab("upcoming")} />
       <ScheduleQuickAdd />
 
       <div className="mb-5 inline-flex rounded-full bg-neutral-200/60 p-1">
@@ -40,7 +43,7 @@ export function CalendarView({
       </div>
 
       {tab === "upcoming" ? (
-        <CalendarList key={`u:${sig(upcoming)}`} initial={upcoming} variant="upcoming" tz={tz} viewerId={viewerId} />
+        <CalendarList key={`u:${sig(upcoming)}`} initial={upcoming} variant="upcoming" tz={tz} viewerId={viewerId} trips={trips} />
       ) : (
         <CalendarList key={`p:${sig(past)}`} initial={past} variant="past" tz={tz} viewerId={viewerId} />
       )}
@@ -49,7 +52,7 @@ export function CalendarView({
 }
 
 /** The next 7 days; a dot marks days with plans. Tapping scrolls the agenda. */
-function WeekStrip({ cards, tz, onPick }: { cards: DigestCardData[]; tz: string; onPick: () => void }) {
+function WeekStrip({ cards, tz, trips, onPick }: { cards: DigestCardData[]; tz: string; trips: Record<string, Trip>; onPick: () => void }) {
   const days = useMemo(() => {
     const now = Date.now();
     return Array.from({ length: 7 }, (_, i) => {
@@ -71,9 +74,12 @@ function WeekStrip({ cards, tz, onPick }: { cards: DigestCardData[]; tz: string;
       const iso = cardIso(c);
       const day = iso ? dayInTz(iso, tz) : null;
       if (day) s.add(day);
+      // Every day of a trip counts as busy.
+      const trip = c.type === "social_invite" && c.eventId ? trips[c.eventId] : undefined;
+      if (trip) for (let i = 0; i < trip.days.length; i++) s.add(addDays(trip.start, i));
     }
     return s;
-  }, [cards, tz]);
+  }, [cards, tz, trips]);
 
   const [selected, setSelected] = useState(days[0]?.key ?? "");
 

@@ -1,5 +1,8 @@
 "use client";
 
+import { LinkText } from "./LinkText";
+import { LinkPreview } from "./LinkPreview";
+import { firstLink } from "@/lib/links";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -368,7 +371,10 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
               {iconBox(<AlignLeft className="h-5 w-5 text-neutral-600" />, "bg-neutral-100")}
               <div className="min-w-0 flex-1 self-center">
                 {v.note ? (
-                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{v.note}</p>
+                  <>
+                    <LinkText nested text={v.note} className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-neutral-800" />
+                    {firstLink(v.note) && <LinkPreview url={firstLink(v.note)!} />}
+                  </>
                 ) : (
                   ghost("Add a note for guests")
                 )}
@@ -381,7 +387,8 @@ export function EventHeader({ data }: { data: EventHeaderData }) {
                 {iconBox(<AlignLeft className="h-5 w-5 text-neutral-600" />, "bg-neutral-100")}
                 <div className="min-w-0 flex-1 self-center">
                   <p className="text-[12px] font-semibold text-neutral-500">From {data.hostName}</p>
-                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-neutral-800">{noteText}</p>
+                  <LinkText text={noteText} className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-neutral-800" />
+                  {firstLink(noteText) && <LinkPreview url={firstLink(noteText)!} />}
                 </div>
               </div>
             )

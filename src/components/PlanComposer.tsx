@@ -11,6 +11,7 @@ import type { FriendOption } from "@/lib/friends";
 import { DateTimeField, type DTValue } from "./DateTimeField";
 import { WhenPicker, type WhenValue } from "./WhenPicker";
 import { clientTimeZone, isoFromLocal, formatWhen, formatWhenRange, localFromIso } from "@/lib/localDateTime";
+import { ItineraryComposer } from "./itinerary/ItineraryComposer";
 
 const AVATAR_TONES = [
   "bg-fuchsia-700 text-white",
@@ -43,6 +44,7 @@ export function PlanComposer() {
   const tz = clientTimeZone();
   const days = useMemo(() => Array.from({ length: 3 }, (_, i) => dayOffset(i, tz)), [tz]);
 
+  const [kind, setKind] = useState<"day" | "itinerary">("day");
   const [title, setTitle] = useState("");
   const [friends, setFriends] = useState<FriendOption[]>([]);
   const [picked, setPicked] = useState<string[]>([]);
@@ -216,6 +218,32 @@ export function PlanComposer() {
         <span />
       </div>
 
+      <div role="tablist" aria-label="Kind of plan" className="mb-5 grid grid-cols-2 rounded-full bg-neutral-200/70 p-1">
+        {(
+          [
+            ["day", "One day"],
+            ["itinerary", "Itinerary"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={kind === k}
+            onClick={() => setKind(k)}
+            className={`h-9 rounded-full text-[14px] font-semibold transition ${
+              kind === k ? "bg-white text-neutral-900 shadow-sm" : "text-neutral-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {kind === "itinerary" ? (
+        <ItineraryComposer />
+      ) : (
+      <>
       <div className="flex flex-1 flex-col gap-7 pb-44 pt-1.5">
         <label className="block">
           <span className="text-[13px] font-medium text-neutral-500">What&rsquo;s the plan?</span>
@@ -484,6 +512,8 @@ export function PlanComposer() {
           </button>
         </div>
       </footer>
+      </>
+      )}
     </div>
   );
 }

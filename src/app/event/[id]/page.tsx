@@ -22,6 +22,8 @@ import type { ViewerPhoto } from "@/components/PhotoViewer";
 import { serverTimeZone } from "@/lib/tz";
 import { dayInTz } from "@/lib/calendarSort";
 import { publicImageUrl } from "@/lib/storage";
+import { cleanItinerary, addDays } from "@/lib/itinerary";
+import { ItinerarySection } from "@/components/itinerary/ItinerarySection";
 
 interface EventRow {
   id: string;
@@ -123,7 +125,16 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
   const tz = await serverTimeZone();
   const eventDay = ev.starts_at ? dayInTz(ev.starts_at, tz) : null;
   const today = dayInTz(Date.now(), tz);
-  const isPast = !!eventDay && !!today && eventDay < today;
+  // Itinerary (before migration 0047 the column doesn't exist: no itinerary).
+  const { data: itinRow } = await admin.from("events").select("itinerary").eq("id", id).maybeSingle();
+  const itinerary = cleanItinerary((itinRow as { itinerary?: unknown } | null)?.itinerary);
+  // A trip stays "upcoming" until its last day has passed.
+  const lastDay = eventDay && itinerary.length > 1 ? addDays(eventDay, itinerary.length - 1) : eventDay;
+  const isPast = !!lastDay && !!today && lastDay < today;
+  const itinerarySection =
+    itinerary.length > 0 && eventDay ? (
+      <ItinerarySection eventId={id} start={eventDay} days={itinerary} isHost={isHost} />
+    ) : null;
 
   // Photos = posts linked to this event, from anyone on it.
   let photos: ViewerPhoto[] = [];
@@ -266,6 +277,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
                 </summary>
                 <div className="space-y-8 border-t border-neutral-100 p-4">
                   <EventHeader data={headerData} />
+                  {itinerarySection}
                   {people}
                   {hasMod("carpool") && <CarpoolSection eventId={id} canRemove={isHost} />}
                   {hasMod("tasks") && <TaskSection eventId={id} canRemove={isHost} />}
@@ -277,6 +289,7 @@ export default async function EventPage({ params }: { params: Promise<{ id: stri
           <>
             <EventHeader data={headerData} />
             <div className="space-y-8">
+              {itinerarySection}
               {team && <TeamGamePanel eventId={id} data={team} />}
               {isGuest && !team && (
                 <EventActions

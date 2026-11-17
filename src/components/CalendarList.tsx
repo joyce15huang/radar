@@ -27,6 +27,8 @@ import { updateCardStatus } from "@/app/feed-actions";
 import { openAsEvent, planGuestCount, cancelEvent } from "@/app/event-actions";
 import { InviteComposer } from "./InviteComposer";
 import { EmptyState } from "./LibraryWall";
+import { addDays, timeLabel, type Trip } from "@/lib/itinerary";
+import { LinkText } from "./LinkText";
 
 type Variant = "upcoming" | "past";
 
@@ -41,11 +43,14 @@ export function CalendarList({
   variant = "upcoming",
   tz,
   viewerId,
+  trips = {},
 }: {
   initial: DigestCardData[];
   variant?: Variant;
   tz: string;
   viewerId: string;
+  /** Itinerary plans by event id: their days get rows of their own. */
+  trips?: Record<string, Trip>;
 }) {
   const [cards, setCards] = useState(initial);
   // Phone: rows swipe left to show Send / Delete. Desktop: they fade in on hover.
@@ -233,7 +238,7 @@ export function CalendarList({
 
   // Group into day sections so the DATE lives once in a header — each row then
   // only shows its time-of-day, never the weekday+date again.
-  const groups = groupByDay(cards, tz, variant === "past");
+  const groups = withTripDays(groupByDay(cards, tz, variant === "past"), variant === "past" ? {} : trips, cards, tz);
 
   return (
     <div
@@ -265,6 +270,7 @@ export function CalendarList({
                 onUpdate={apply}
               />
             ))}
+            {g.tripDays?.map((t) => <TripDayRow key={`${t.trip.eventId}:${t.index}`} trip={t.trip} index={t.index} />)}
           </div>
         </section>
       ))}
@@ -283,6 +289,8 @@ interface DayGroup {
   key: string;
   label: string;
   cards: DigestCardData[];
+  /** Itinerary days that fall on this day. */
+  tripDays?: { trip: Trip; index: number }[];
 }
 
 function ymdParts(day: string): { y: number; mo: number; d: number } {
@@ -327,15 +335,79 @@ function groupByDay(cards: DigestCardData[], tz: string, past: boolean): DayGrou
     map.get(key)!.push(c);
   }
 
-  return order.map((key) => {
-    let label: string;
-    if (key === "undated") label = "No date yet";
-    else if (key === today) label = `Today · ${weekdayFromYmd(key)}`;
-    else if (!past && key === tomorrow) label = `Tomorrow · ${weekdayFromYmd(key)}`;
-    else if (past && key === yesterday) label = "Yesterday";
-    else label = dayLabelFromYmd(key);
-    return { key, label, cards: map.get(key)! };
-  });
+  return order.map((key) => ({ key, label: groupLabel(key, past, { today, tomorrow, yesterday }), cards: map.get(key)! }));
+}
+
+function groupLabel(
+  key: string,
+  past: boolean,
+  d: { today: string | null; tomorrow: string | null; yesterday: string | null },
+): string {
+  if (key === "undated") return "No date yet";
+  if (key === d.today) return `Today · ${weekdayFromYmd(key)}`;
+  if (!past && key === d.tomorrow) return `Tomorrow · ${weekdayFromYmd(key)}`;
+  if (past && key === d.yesterday) return "Yesterday";
+  return dayLabelFromYmd(key);
+}
+
+/**
+ * Put each itinerary day under its own date (from today on), adding day
+ * sections where a trip day has nothing else, and keep sections in date order.
+ */
+function withTripDays(groups: DayGroup[], trips: Record<string, Trip>, cards: DigestCardData[], tz: string): DayGroup[] {
+  const ids = new Set<string>();
+  for (const c of cards) if (c.type === "social_invite" && c.eventId && trips[c.eventId]) ids.add(c.eventId);
+  if (ids.size === 0) return groups;
+  const now = Date.now();
+  const d = { today: dayInTz(now, tz), tomorrow: dayInTz(now + DAY_MS, tz), yesterday: dayInTz(now - DAY_MS, tz) };
+  const byKey = new Map(groups.map((g) => [g.key, { ...g, tripDays: [...(g.tripDays ?? [])] }]));
+  for (const id of ids) {
+    const trip = trips[id];
+    if (trip.days.length < 2) continue; // a one-day itinerary is just the plan row
+    trip.days.forEach((_, i) => {
+      const key = addDays(trip.start, i);
+      if (d.today && key < d.today) return;
+      if (!byKey.has(key)) byKey.set(key, { key, label: groupLabel(key, false, d), cards: [], tripDays: [] });
+      byKey.get(key)!.tripDays!.push({ trip, index: i });
+    });
+  }
+  return [...byKey.values()].sort((a, b) =>
+    a.key === "undated" ? 1 : b.key === "undated" ? -1 : a.key.localeCompare(b.key),
+  );
+}
+
+/** One day of a trip: "Tahoe weekend · Day 2 of 3" and that day's items. */
+function TripDayRow({ trip, index }: { trip: Trip; index: number }) {
+  const items = trip.days[index]?.items ?? [];
+  return (
+    <Link
+      href={`/event/${trip.eventId}`}
+      className="block overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition hover:bg-neutral-50"
+    >
+      <span className="flex items-center gap-3 bg-orange-50 px-4 py-2.5">
+        <span className="w-1 self-stretch rounded-full bg-orange-300" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-bold text-neutral-900">{trip.title}</span>
+          <span className="block text-[13px] text-neutral-600">
+            Day {index + 1} of {trip.days.length}
+          </span>
+        </span>
+      </span>
+      {items.length === 0 ? (
+        <span className="block border-t border-neutral-100 px-4 py-2.5 text-[14px] text-neutral-400">Free day</span>
+      ) : (
+        items.map((it, i) => (
+          <span key={i} className="flex gap-3 border-t border-neutral-100 px-4 py-2.5">
+            <span className="w-[62px] shrink-0 text-[13px] font-bold text-fuchsia-800">{timeLabel(it.time)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-semibold text-neutral-900">{it.title}</span>
+              {it.place && <span className="block truncate text-[12px] text-neutral-500">{it.place}</span>}
+            </span>
+          </span>
+        ))
+      )}
+    </Link>
+  );
 }
 
 /* -------------------------------- time tile ------------------------------- */
@@ -458,6 +530,7 @@ function EventRowInner({
   const barClass = waitlisted ? "bg-violet-300" : rowBar(card);
   const title = titleOf(card);
   const location = !isWindow ? card.location : undefined;
+  const note = (card.type === "social_invite" ? card.note : card.type === "calendar_radar" ? card.details : undefined)?.trim();
   const eventId = isInvite ? card.eventId : undefined;
 
   // Your own plans (and saved items) can be sent; a guest only when the host allows it.
@@ -516,6 +589,9 @@ function EventRowInner({
             <MapPin className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">{location}</span>
           </p>
+        )}
+        {note && (
+          <LinkText nested text={note} className="mt-1 line-clamp-3 whitespace-pre-line break-words text-[13px] leading-snug text-neutral-500" />
         )}
         {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
         {card.type === "calendar_radar" && card.fromName && (
