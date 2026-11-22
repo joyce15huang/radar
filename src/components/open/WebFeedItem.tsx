@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { CalendarCheck, CalendarPlus, Globe, Send, UserPlus, X } from "lucide-react";
+import { CalendarCheck, CalendarPlus, Globe, MoreHorizontal, Send, UserPlus } from "lucide-react";
 import { CalendarPicker, cardTile, safeHostname, whenText, type Scouted } from "@/components/DigestCard";
 import { updateCardStatus } from "@/app/feed-actions";
 
@@ -14,17 +14,44 @@ function askHref(card: Scouted): string {
   return `/p/new?${qs.toString()}`;
 }
 
-/** A web find, laid out like a post: source, the text, its day, then Save · Ask who's going · Share. */
+/** The site's own little logo, or a globe when it has none. */
+function SiteMark({ host }: { host: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded-full border border-neutral-200 bg-white" aria-hidden>
+      {host && !failed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`https://${host}/favicon.ico`}
+          alt=""
+          width={20}
+          height={20}
+          referrerPolicy="no-referrer"
+          onError={() => setFailed(true)}
+          className="h-5 w-5 object-contain"
+        />
+      ) : (
+        <Globe className="h-[18px] w-[18px] text-neutral-500" strokeWidth={1.8} />
+      )}
+    </span>
+  );
+}
+
+/** A web find, laid out like a post: site · place · when, then one paragraph, then Save · Ask · Share. */
 export function WebFeedItem({ card, divider = true }: { card: Scouted; divider?: boolean }) {
   const [picking, setPicking] = useState(false);
   const [saved, setSaved] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [menu, setMenu] = useState(false);
   if (hidden) return null;
 
   const url = (card as { actionUrl?: string }).actionUrl;
+  const host = url ? safeHostname(url) : null;
   const tile = cardTile(card);
   const when = whenText(card) ?? (tile ? [tile.top, tile.day, tile.time].filter(Boolean).join(" ") : "");
-  const where = [card.place, card.cost].filter(Boolean).join(" · ");
+  const meta = [card.place, when].filter(Boolean).join(" · ");
+  const title = card.title.replace(/[.!?]\s*$/, "");
+  const text = card.summary ? `${title}. ${card.summary}` : title;
 
   async function share() {
     const link = url ?? window.location.href;
@@ -36,44 +63,48 @@ export function WebFeedItem({ card, divider = true }: { card: Scouted; divider?:
     }
   }
 
+  const paragraph = <p className="mt-1 line-clamp-4 text-[16px] leading-[1.45] text-neutral-900">{text}</p>;
+
   return (
-    <article className={`flex gap-3 py-4 ${divider ? "border-b border-neutral-200/80" : ""}`}>
-      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full border border-neutral-300 text-neutral-500" aria-hidden>
-        <Globe className="h-[18px] w-[18px]" strokeWidth={1.8} />
-      </span>
+    <article className={`flex gap-3 py-3.5 ${divider ? "border-b border-neutral-200" : ""}`}>
+      <SiteMark host={host} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-[15px] leading-tight">
-              <span className="font-bold text-neutral-900">From the web</span>
-              {url && <span className="text-neutral-500"> · {safeHostname(url)}</span>}
-            </p>
-            <p className="truncate text-[12px] text-neutral-500">{where || card.topic || "Nearby"}</p>
-          </div>
+        <div className="relative flex items-start gap-2">
+          <p className="min-w-0 flex-1 text-[15px] leading-tight">
+            <span className="font-bold text-neutral-900">{host ?? "From the web"}</span>
+            {meta && <span className="text-neutral-600"> · {meta}</span>}
+          </p>
           <button
             type="button"
-            onClick={() => {
-              setHidden(true);
-              void updateCardStatus(card.id, "dismissed");
-            }}
-            aria-label="Hide"
-            className="-mr-1.5 -mt-1 flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-200/60"
+            onClick={() => setMenu((m) => !m)}
+            aria-label="More"
+            aria-expanded={menu}
+            className="-mr-1.5 -mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-neutral-500 hover:bg-neutral-200/60"
           >
-            <X className="h-4 w-4" />
+            <MoreHorizontal className="h-[18px] w-[18px]" />
           </button>
+          {menu && (
+            <div className="absolute right-0 top-7 z-10 min-w-[160px] overflow-hidden rounded-xl bg-white py-1 shadow-[0_12px_30px_rgba(46,33,29,0.16)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setHidden(true);
+                  void updateCardStatus(card.id, "dismissed");
+                }}
+                className="block w-full px-4 py-2.5 text-left text-[14px] text-neutral-900 hover:bg-neutral-100"
+              >
+                Hide this
+              </button>
+            </div>
+          )}
         </div>
         {url ? (
           <a href={url} target="_blank" rel="noopener noreferrer nofollow" className="block">
-            <p className="mt-1.5 text-[16px] font-semibold leading-[1.45] text-neutral-900">{card.title}</p>
-            {card.summary && <p className="mt-0.5 line-clamp-2 text-[15px] leading-[1.45] text-neutral-700">{card.summary}</p>}
+            {paragraph}
           </a>
         ) : (
-          <>
-            <p className="mt-1.5 text-[16px] font-semibold leading-[1.45] text-neutral-900">{card.title}</p>
-            {card.summary && <p className="mt-0.5 line-clamp-2 text-[15px] leading-[1.45] text-neutral-700">{card.summary}</p>}
-          </>
+          paragraph
         )}
-        {when && <p className="mt-1.5 text-[14px] text-neutral-500">{when}</p>}
 
         {picking && !saved ? (
           <CalendarPicker
@@ -85,21 +116,21 @@ export function WebFeedItem({ card, divider = true }: { card: Scouted; divider?:
             onCancel={() => setPicking(false)}
           />
         ) : (
-          <div className="mt-2 flex items-center gap-5 text-neutral-500">
+          <div className="mt-1.5 flex items-center gap-5 text-neutral-600">
             <button
               type="button"
               onClick={() => !saved && setPicking(true)}
               aria-pressed={saved}
               aria-label={saved ? "On your calendar" : "Save to your calendar"}
+              title={saved ? "On your calendar" : "Save to your calendar"}
               className={`-ml-1.5 flex h-9 items-center px-1.5 ${saved ? "text-fuchsia-800" : ""}`}
             >
               {saved ? <CalendarCheck className="h-5 w-5" strokeWidth={2} /> : <CalendarPlus className="h-5 w-5" strokeWidth={1.8} />}
             </button>
-            <Link href={askHref(card)} aria-label="Ask who's going" className="flex h-9 items-center gap-1.5 px-1">
+            <Link href={askHref(card)} aria-label="Ask who's going" title="Ask who's going" className="flex h-9 items-center px-1">
               <UserPlus className="h-5 w-5" strokeWidth={1.8} />
-              <span className="text-[13px]">Ask who&rsquo;s going</span>
             </Link>
-            <button type="button" onClick={share} aria-label="Share" className="flex h-9 items-center px-1">
+            <button type="button" onClick={share} aria-label="Share" title="Share" className="flex h-9 items-center px-1">
               <Send className="h-[19px] w-[19px]" strokeWidth={1.8} />
             </button>
           </div>

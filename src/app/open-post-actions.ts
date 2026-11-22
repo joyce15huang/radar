@@ -8,6 +8,7 @@ import { isoFromLocal } from "@/lib/localDateTime";
 import { cleanCity } from "@/lib/scout/safety";
 import { serverTimeZone } from "@/lib/tz";
 import { createDirectEvent } from "@/app/poll-actions";
+import { notify } from "@/lib/push";
 import { ago, isThisWeekend, titleFromBody, whenLabel, type Audience, type FeedPost } from "@/lib/openPosts";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -234,6 +235,7 @@ async function noteSave(admin: Admin, p: PostRow, saverId: string) {
     .eq("content->>openPostId", p.id)
     .limit(1)
     .maybeSingle();
+  notify([p.author_id], { title: content.changeSummary, body: content.eventTitle, url: `/p/${p.id}`, tag: `save-${p.id}` });
   if (existing) {
     await admin
       .from("cards")
@@ -383,6 +385,8 @@ export async function sendPostMessage(id: string, body: string, toId?: string): 
   if ((count ?? 0) >= 60) return { ok: false, error: "Slow down a little — try again soon." };
   const { error } = await admin.from("open_post_messages").insert({ post_id: id, sender_id: me, to_id: to, body: text });
   if (error) return { ok: false, error: error.message };
+  const myName = actor.activeProfile.username ?? actor.activeProfile.displayName ?? "Someone";
+  notify([to], { title: myName, body: text, url: `/p/${id}`, tag: `pm-${id}-${me}` });
   revalidatePath(`/p/${id}`);
   return { ok: true };
 }

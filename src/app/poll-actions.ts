@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
+import { notify } from "@/lib/push";
 import { type Avail, rankOptions, type PollRespondent, type OptionTally } from "@/lib/schedule";
 import { normalizeUsername } from "@/lib/username";
 import { startOfTodayISO } from "@/lib/time";
@@ -192,6 +193,9 @@ export async function createDirectEvent(input: {
     })),
   ]);
   if (error) return { ok: false, error: error.message };
+  if (recipientIds.length) {
+    notify(recipientIds, { title: `${hostName} invited you`, body: `${title} · ${eventTime}`, url: `/event/${event.id}`, tag: `invite-${event.id}` });
+  }
   revalidatePath("/calendar");
   return { ok: true, eventId: event.id as string };
 }

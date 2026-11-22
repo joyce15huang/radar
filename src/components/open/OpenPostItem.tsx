@@ -63,20 +63,22 @@ export function OpenPostItem({ post, linkBody = true, divider = true }: { post: 
 
   const body = (
     <>
-      <LinkText nested text={post.body} className="mt-1.5 whitespace-pre-line break-words text-[16px] leading-[1.5] text-neutral-900" />
-      {post.when && <p className="mt-1.5 text-[14px] text-neutral-500">{post.when}</p>}
+      <LinkText nested text={post.body} className="mt-1 whitespace-pre-line break-words text-[16px] leading-[1.45] text-neutral-900" />
+      {post.when && <p className="mt-1 text-[14px] text-neutral-600">{post.when}</p>}
     </>
   );
 
   return (
-    <article className={`flex gap-3 py-4 ${divider ? "border-b border-neutral-200/80" : ""}`}>
+    <article className={`flex gap-3 py-3.5 ${divider ? "border-b border-neutral-200" : ""}`}>
       <Avatar id={post.authorId} name={post.authorName} />
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] leading-tight">
+        <p className="truncate text-[15px] leading-tight">
           <span className="font-bold text-neutral-900">{post.authorName}</span>
-          <span className="text-neutral-500"> · {post.ago}</span>
+          <span className="text-neutral-600">
+            {" "}
+            · {post.relation} · {post.ago}
+          </span>
         </p>
-        <p className="text-[12px] text-neutral-500">{post.relation}</p>
         {linkBody ? (
           <Link href={`/p/${post.id}`} className="block">
             {body}
@@ -99,7 +101,7 @@ export function OpenPostItem({ post, linkBody = true, divider = true }: { post: 
             </span>
           </Link>
         )}
-        <div className="mt-2 flex items-center gap-5 text-neutral-500">
+        <div className="mt-1.5 flex items-center gap-5 text-neutral-600">
           <button
             type="button"
             onClick={save}

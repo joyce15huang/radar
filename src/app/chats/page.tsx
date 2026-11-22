@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { BellOff, ChevronRight, Lock, Megaphone, UserPlus } from "lucide-react";
+import { ChevronRight, Lock, Megaphone, UserPlus } from "lucide-react";
 import { getActor } from "@/lib/actor";
+import { PushToggle } from "@/components/PushToggle";
 import { TabNav } from "@/components/TabNav";
 import { listChats, listSoloUpcoming, type ChatRow } from "@/app/chat-list-actions";
 import { inboxCount } from "@/app/inbox-actions";
@@ -169,9 +170,9 @@ export default async function ChatsPage() {
           </section>
         )}
 
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-[12px] text-neutral-500">
-          <BellOff className="h-3.5 w-3.5" /> Chats don&rsquo;t send notifications yet — new messages show here.
-        </p>
+        <div className="mt-6">
+          <PushToggle />
+        </div>
       </div>
     </main>
   );

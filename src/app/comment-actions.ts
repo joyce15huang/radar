@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getActor } from "@/lib/actor";
+import { notify } from "@/lib/push";
 import { canManage, type TeamRole } from "@/lib/teams";
 import { chatClosesAt, NEEDS_0044, type ChatMessage, type ChatView, type PrivateThread } from "@/lib/chat";
 
@@ -210,6 +211,16 @@ export async function postChat(eventId: string, body: string, opts: { announce?:
   if (!opts.announce) {
     const { error } = await admin.from("event_comments").insert({ event_id: eventId, author_id: me, body: clean });
     if (error) return { ok: false, error: error.message };
+    // Everyone going (and the host), not people who haven't answered yet.
+    const { data: going } = await admin
+      .from("cards")
+      .select("user_id")
+      .eq("event_id", eventId)
+      .eq("type", "social_invite")
+      .eq("status", "accepted");
+    const to = [...(going ?? []).map((c) => c.user_id as string), found.plan.creatorId].filter((id) => id && id !== me);
+    const myName = actor.activeProfile.username ?? actor.activeProfile.displayName ?? "Someone";
+    notify(to, { title: found.plan.title, body: `${myName}: ${clean}`, url: `/chat/${eventId}`, tag: `chat-${eventId}` });
     revalidatePath(`/event/${eventId}`);
     return { ok: true };
   }
@@ -249,6 +260,7 @@ export async function postChat(eventId: string, body: string, opts: { announce?:
       changeSummary: clean.slice(0, 280),
       announce: "true",
     };
+    notify(guests, { title: `${from} · announcement`, body: clean, url: `/event/${eventId}`, tag: `announce-${eventId}` });
     await admin.from("cards").insert(
       guests.map((uid) => ({
         user_id: uid,
@@ -298,6 +310,12 @@ export async function sendPrivateNote(eventId: string, toId: string, body: strin
     .from("event_comments")
     .insert({ event_id: eventId, author_id: me, body: clean, private_to: toId });
   if (error) return { ok: false, error: /private_to/.test(error.message) ? NEEDS_0044 : error.message };
+  notify([toId], {
+    title: actor.activeProfile.username ?? actor.activeProfile.displayName ?? "Someone",
+    body: clean,
+    url: `/chat/${eventId}?with=${me}`,
+    tag: `note-${eventId}-${me}`,
+  });
   revalidatePath(`/event/${eventId}`);
   return { ok: true };
 }
