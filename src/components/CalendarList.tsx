@@ -268,9 +268,12 @@ export function CalendarList({
                 onDelete={askDelete}
                 onRemove={() => remove(card.id)}
                 onUpdate={apply}
+                tripDay={g.tripDays?.find((t) => card.type === "social_invite" && t.trip.eventId === card.eventId)}
               />
             ))}
-            {g.tripDays?.map((t) => <TripDayRow key={`${t.trip.eventId}:${t.index}`} trip={t.trip} index={t.index} />)}
+            {g.tripDays
+              ?.filter((t) => !g.cards.some((c) => c.type === "social_invite" && c.eventId === t.trip.eventId))
+              .map((t) => <TripDayRow key={`${t.trip.eventId}:${t.index}`} trip={t.trip} index={t.index} />)}
           </div>
         </section>
       ))}
@@ -376,37 +379,50 @@ function withTripDays(groups: DayGroup[], trips: Record<string, Trip>, cards: Di
   );
 }
 
-/** One day of a trip: "Tahoe weekend · Day 2 of 3" and that day's items. */
-function TripDayRow({ trip, index }: { trip: Trip; index: number }) {
+/** "Day 2 of 3" and that day's items, one short line each ("8:30 AM Drive up · Place"). */
+function TripItems({ trip, index }: { trip: Trip; index: number }) {
   const items = trip.days[index]?.items ?? [];
   return (
-    <Link
-      href={`/event/${trip.eventId}`}
-      className="block overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition hover:bg-neutral-50"
-    >
-      <span className="flex items-center gap-3 bg-orange-50 px-4 py-2.5">
-        <span className="w-1 self-stretch rounded-full bg-orange-300" aria-hidden />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[15px] font-bold text-neutral-900">{trip.title}</span>
-          <span className="block text-[13px] text-neutral-600">
-            Day {index + 1} of {trip.days.length}
-          </span>
-        </span>
-      </span>
+    <div className="mt-1 space-y-0.5">
+      <p className="text-[12px] font-semibold text-orange-700">
+        Day {index + 1} of {trip.days.length}
+      </p>
       {items.length === 0 ? (
-        <span className="block border-t border-neutral-100 px-4 py-2.5 text-[14px] text-neutral-400">Free day</span>
+        <p className="text-[13px] text-neutral-400">Free day</p>
       ) : (
         items.map((it, i) => (
-          <span key={i} className="flex gap-3 border-t border-neutral-100 px-4 py-2.5">
-            <span className="w-[62px] shrink-0 text-[13px] font-bold text-fuchsia-800">{timeLabel(it.time)}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[14px] font-semibold text-neutral-900">{it.title}</span>
-              {it.place && <span className="block truncate text-[12px] text-neutral-500">{it.place}</span>}
-            </span>
-          </span>
+          <p key={i} className="truncate text-[13px] text-neutral-700">
+            {it.time && <span className="mr-1.5 font-semibold tabular-nums text-fuchsia-800">{timeLabel(it.time)}</span>}
+            {it.title}
+            {it.place && <span className="text-neutral-500"> · {it.place}</span>}
+          </p>
         ))
       )}
-    </Link>
+      {trip.days[index]?.stay && (
+        <p className="truncate text-[13px] text-neutral-500">Stay · {trip.days[index].stay}</p>
+      )}
+    </div>
+  );
+}
+
+/** A later day of a trip: lined up like any other row (time gutter, then the card). */
+function TripDayRow({ trip, index }: { trip: Trip; index: number }) {
+  return (
+    <div className="flex gap-3">
+      <div className="w-12 shrink-0 pt-3.5 text-right">
+        <p className="text-[13px] font-semibold leading-tight text-neutral-800">Day {index + 1}</p>
+      </div>
+      <Link
+        href={`/event/${trip.eventId}`}
+        className="flex min-w-0 flex-1 gap-3 rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition hover:bg-neutral-50"
+      >
+        <span className="w-1 shrink-0 self-stretch rounded-full bg-orange-300" aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold leading-snug text-neutral-900">{trip.title}</span>
+          <TripItems trip={trip} index={index} />
+        </span>
+      </Link>
+    </div>
   );
 }
 
@@ -491,6 +507,8 @@ interface RowProps {
   onDelete: (card: EventCard) => void;
   onRemove: () => void;
   onUpdate: (updated: DigestCardData) => void;
+  /** This plan is an itinerary and this day is one of its days: show that day's items. */
+  tripDay?: { trip: Trip; index: number };
 }
 
 /**
@@ -518,6 +536,7 @@ function EventRowInner({
   onDelete,
   onRemove,
   onUpdate,
+  tripDay,
 }: RowProps & { card: EventCard }) {
   const router = useRouter();
   const [opening, setOpening] = useState(false);
@@ -532,6 +551,8 @@ function EventRowInner({
   const location = !isWindow ? card.location : undefined;
   const note = (card.type === "social_invite" ? card.note : card.type === "calendar_radar" ? card.details : undefined)?.trim();
   const eventId = isInvite ? card.eventId : undefined;
+  const maybe = card.type === "calendar_radar" && !!card.maybe;
+  const openPostId = card.type === "calendar_radar" ? card.openPostId : undefined;
 
   // Your own plans (and saved items) can be sent; a guest only when the host allows it.
   const isHostRow = !isInvite || (!!card.hostId && card.hostId === viewerId);
@@ -590,12 +611,15 @@ function EventRowInner({
             <span className="truncate">{location}</span>
           </p>
         )}
-        {note && (
+        {tripDay && <TripItems trip={tripDay.trip} index={tripDay.index} />}
+        {note && note !== title && (
           <LinkText nested text={note} className="mt-1 line-clamp-3 whitespace-pre-line break-words text-[13px] leading-snug text-neutral-500" />
         )}
         {isWindow && <p className="mt-0.5 text-[13px] text-neutral-500">Saved from Today</p>}
         {card.type === "calendar_radar" && card.fromName && (
-          <p className="mt-0.5 truncate text-[13px] font-medium text-green-700">From {card.fromName}</p>
+          <p className={`mt-0.5 truncate text-[13px] font-medium ${maybe ? "text-neutral-500" : "text-green-700"}`}>
+            {maybe ? `Maybe · ${card.fromName}` : `From ${card.fromName}`}
+          </p>
         )}
         {openError && <p className="mt-0.5 text-[12px] font-medium text-rose-600">Couldn&rsquo;t open — try again</p>}
       </div>
@@ -670,8 +694,12 @@ function EventRowInner({
             isPending ? "rounded-2xl border border-dashed border-fuchsia-300 bg-fuchsia-50/40" : "bg-white"
           }`}
         >
-          {eventId ? (
-            <Link href={`/event/${eventId}`} className="flex min-w-0 flex-1 gap-3 p-3.5 text-left" draggable={false}>
+          {eventId || openPostId ? (
+            <Link
+              href={eventId ? `/event/${eventId}` : `/p/${openPostId}`}
+              className={`flex min-w-0 flex-1 gap-3 p-3.5 text-left ${maybe ? "opacity-75" : ""}`}
+              draggable={false}
+            >
               {rowBody}
             </Link>
           ) : (
@@ -710,7 +738,7 @@ function EventRowInner({
 /** Invites fuchsia (pale while unanswered) · your own plans sky · saved-from-Today amber. */
 function rowBar(card: EventCard): string {
   if (card.type === "social_invite") return card.status === "pending" ? "bg-fuchsia-300" : "bg-fuchsia-600";
-  if (card.type === "calendar_radar") return card.fromName ? "bg-green-600" : "bg-sky-600";
+  if (card.type === "calendar_radar") return card.maybe ? "bg-neutral-300" : card.fromName ? "bg-green-600" : "bg-sky-600";
   return "bg-amber-500";
 }
 

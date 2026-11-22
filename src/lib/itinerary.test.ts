@@ -13,6 +13,7 @@ describe("itinerary helpers", () => {
     expect(timeLabel("00:05")).toBe("12:05 AM");
     expect(timeLabel("17:00")).toBe("5:00 PM");
     expect(timeLabel(null)).toBe("");
+    expect(timeLabel("night")).toBe("Night");
   });
   it("cleans input: drops blank items, bad times, sorts by time", () => {
     const d = cleanItinerary([
@@ -25,5 +26,14 @@ describe("itinerary helpers", () => {
     ]);
     expect(cleanItinerary("junk")).toEqual([]);
     expect(cleanItinerary(Array.from({ length: 40 }, () => ({ items: [] }))).length).toBe(14);
+  });
+
+  it("keeps slots and stays, slots before exact times in their part of the day", () => {
+    const d = cleanItinerary([
+      { items: [{ time: "13:00", title: "Lunch" }, { time: "afternoon", title: "Hike" }, { time: "morning", title: "Coffee" }, { time: "evening", title: "X" }], stay: " Cabin " },
+    ]);
+    expect(d[0].items.map((i) => i.title)).toEqual(["Coffee", "Hike", "Lunch", "X"]);
+    expect(d[0].items[3].time).toBeNull();
+    expect(d[0].stay).toBe("Cabin");
   });
 });

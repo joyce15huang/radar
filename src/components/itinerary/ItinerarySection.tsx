@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, MapPin } from "lucide-react";
+import { BedDouble, Loader2, MapPin } from "lucide-react";
 import { clientTimeZone } from "@/lib/localDateTime";
 import { addDays, dayLabel, timeLabel, type ItinDay } from "@/lib/itinerary";
 import { updateItinerary } from "@/app/itinerary-actions";
-import { ItineraryDays, fromDraft, toDraft, type DraftDay } from "./ItineraryDays";
+import { ItineraryDays, DaysStepper, fromDraft, toDraft, type DraftDay } from "./ItineraryDays";
 
 /** The plan page's day-by-day timeline. The host can edit the days in place. */
 export function ItinerarySection({
@@ -58,6 +58,7 @@ export function ItinerarySection({
 
       {editing ? (
         <div className="space-y-3">
+          <DaysStepper days={draft} onChange={setDraft} />
           <ItineraryDays start={start} days={draft} onChange={setDraft} />
           {error && <p className="text-[13px] font-medium text-rose-700">{error}</p>}
           <div className="grid grid-cols-2 gap-2">
@@ -100,7 +101,9 @@ export function ItinerarySection({
                   <ul>
                     {day.items.map((it, i) => (
                       <li key={i} className="flex gap-3 py-2">
-                        <span className="w-[62px] shrink-0 text-[14px] font-bold text-fuchsia-800">{timeLabel(it.time)}</span>
+                        {day.items.some((x) => x.time) && (
+                          <span className="w-[78px] shrink-0 text-[14px] font-bold text-fuchsia-800">{timeLabel(it.time)}</span>
+                        )}
                         <span className="min-w-0 flex-1">
                           <span className="block text-[15px] font-semibold text-neutral-900">{it.title}</span>
                           {it.place && (
@@ -112,6 +115,11 @@ export function ItinerarySection({
                       </li>
                     ))}
                   </ul>
+                )}
+                {day.stay && (
+                  <p className="flex items-center gap-1.5 pb-1 text-[13px] font-semibold text-neutral-600">
+                    <BedDouble className="h-3.5 w-3.5 shrink-0" /> Stay · {day.stay}
+                  </p>
                 )}
               </div>
             </li>

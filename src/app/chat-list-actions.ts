@@ -5,6 +5,7 @@ import { getActor } from "@/lib/actor";
 import { chatClosesAt } from "@/lib/chat";
 import { inboxCount } from "@/app/inbox-actions";
 import { friendIdSet, isStrangerInvite } from "@/lib/friendIds";
+import { listPostChats } from "@/app/open-post-actions";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -20,6 +21,8 @@ export interface ChatRow {
   unread: number;
   count: number;
   closed: boolean;
+  /** A private thread on an open post (then eventId holds the post id). */
+  postId?: string;
 }
 
 interface Msg {
@@ -31,8 +34,30 @@ interface Msg {
   private_to?: string | null;
 }
 
-/** Every chat the caller is in: one row per plan's group chat and per private thread. */
+/** Every chat the caller is in: plans' group chats, private plan threads, and private threads on open posts. */
 export async function listChats(): Promise<ChatRow[]> {
+  const [plans, posts] = await Promise.all([listPlanChats(), listPostChats().catch(() => [])]);
+  const rows: ChatRow[] = [
+    ...plans,
+    ...posts.map((p) => ({
+      eventId: p.postId,
+      postId: p.postId,
+      peerId: p.peerId,
+      peerName: p.peerName,
+      planTitle: p.title,
+      startsAt: p.startsAt,
+      teamName: null,
+      last: p.last ? { ...p.last, announcement: false } : null,
+      unread: p.unread,
+      count: p.count,
+      closed: p.closed,
+    })),
+  ];
+  const key = (r: ChatRow) => Date.parse(r.last?.at ?? r.startsAt ?? "") || 0;
+  return rows.sort((a, b) => Number(a.closed) - Number(b.closed) || key(b) - key(a));
+}
+
+async function listPlanChats(): Promise<ChatRow[]> {
   const actor = await getActor();
   if (!actor) return [];
   const me = actor.actorId;

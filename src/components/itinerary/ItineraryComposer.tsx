@@ -6,7 +6,7 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { clientTimeZone, localFromIso } from "@/lib/localDateTime";
 import { tripLabel } from "@/lib/itinerary";
 import { createItinerary } from "@/app/itinerary-actions";
-import { ItineraryDays, blankItem, fromDraft, type DraftDay } from "./ItineraryDays";
+import { ItineraryDays, DaysStepper, blankDay, fromDraft, type DraftDay } from "./ItineraryDays";
 
 /** The Itinerary side of New plan: a name, a start date, then Day 1, Day 2 … typed by hand. */
 export function ItineraryComposer() {
@@ -16,7 +16,7 @@ export function ItineraryComposer() {
 
   const [title, setTitle] = useState("");
   const [start, setStart] = useState(today);
-  const [days, setDays] = useState<DraftDay[]>([{ items: [blankItem()] }, { items: [blankItem()] }]);
+  const [days, setDays] = useState<DraftDay[]>(() => [blankDay(), blankDay()]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,10 +58,7 @@ export function ItineraryComposer() {
               className="w-full bg-transparent text-[15px] font-semibold text-neutral-900 outline-none"
             />
           </label>
-          <div className="rounded-2xl bg-white px-4 py-2.5 shadow-[0_8px_24px_rgba(80,50,35,0.06)]">
-            <span className="block text-[11px] font-bold uppercase tracking-wide text-neutral-500">Days</span>
-            <span className="text-[15px] font-semibold text-neutral-900">{days.length}</span>
-          </div>
+          <DaysStepper days={days} onChange={setDays} />
         </div>
 
         <ItineraryDays start={start} days={days} onChange={setDays} />

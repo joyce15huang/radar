@@ -18,7 +18,7 @@ function when(iso: string, tz: string): string {
   return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz });
 }
 
-const href = (r: ChatRow) => `/chat/${r.eventId}${r.peerId ? `?with=${r.peerId}` : ""}`;
+const href = (r: ChatRow) => (r.postId ? `/p/${r.postId}` : `/chat/${r.eventId}${r.peerId ? `?with=${r.peerId}` : ""}`);
 
 /** Chats: every plan's group chat and your private threads, plus requests waiting on you. */
 export default async function ChatsPage() {

@@ -153,6 +153,9 @@ export interface CalendarRadarCard extends CardBase {
   /** Added from a post with dates: who posted it, and which post. */
   fromName?: string;
   postId?: string;
+  /** Saved from an open post: a "maybe", not a plan. */
+  maybe?: boolean;
+  openPostId?: string;
 }
 
 export interface SocialPostCard extends CardBase {
@@ -179,6 +182,8 @@ export interface EventUpdateCard extends CardBase {
   changeSummary?: string;
   /** The event this update refers to. */
   eventId?: string;
+  /** Someone saved your open post: link to it. */
+  openPostId?: string;
   /** A captain's "Are you in?" nudge for a team game. */
   nudge?: boolean;
   /** A host / captain announcement; the text is in changeSummary. */

@@ -150,8 +150,11 @@ function NoteRow({ c, onDone }: { c: Exclude<DigestCardData, Invite>; onDone: ()
 
   switch (c.type) {
     case "event_update":
-      href = c.eventId ? `/event/${c.eventId}` : null;
-      if (c.announce) {
+      href = c.openPostId ? `/p/${c.openPostId}` : c.eventId ? `/event/${c.eventId}` : null;
+      if (c.openPostId) {
+        title = c.changeSummary ?? `${c.hostName} saved your post`;
+        sub = c.eventTitle;
+      } else if (c.announce) {
         icon = <Megaphone className="h-[17px] w-[17px] text-fuchsia-800" />;
         tone = "bg-fuchsia-100";
         title = `${c.hostName} · announcement`;

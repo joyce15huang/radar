@@ -111,6 +111,8 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         details: c.details ?? undefined,
         fromName: c.fromName ?? undefined,
         postId: c.postId ?? undefined,
+        maybe: c.maybe === "true",
+        openPostId: c.openPostId ?? undefined,
       };
 
     case "event_update":
@@ -123,6 +125,7 @@ export function rowToCard(row: CardRow): DigestCardData | null {
         location: c.location ?? undefined,
         changeSummary: c.changeSummary ?? undefined,
         eventId: row.event_id ?? undefined,
+        openPostId: c.openPostId ?? undefined,
         nudge: c.nudge === "true",
         announce: c.announce === "true",
       };
