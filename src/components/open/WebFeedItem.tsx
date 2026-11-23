@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarCheck, CalendarPlus, Globe, MoreHorizontal, Send, UserPlus } from "lucide-react";
 import { CalendarPicker, cardTile, safeHostname, whenText, type Scouted } from "@/components/DigestCard";
 import { updateCardStatus } from "@/app/feed-actions";
+import { shortPlace } from "@/lib/areas";
 
 /** "Anyone want to go? <title>" for the composer, with the day if the find has one. */
 function askHref(card: Scouted): string {
@@ -49,7 +50,7 @@ export function WebFeedItem({ card, divider = true }: { card: Scouted; divider?:
   const host = url ? safeHostname(url) : null;
   const tile = cardTile(card);
   const when = whenText(card) ?? (tile ? [tile.top, tile.day, tile.time].filter(Boolean).join(" ") : "");
-  const meta = [card.place, when].filter(Boolean).join(" · ");
+  const meta = [shortPlace(card.place), when].filter(Boolean).join(" · ");
   const title = card.title.replace(/[.!?]\s*$/, "");
   const text = card.summary ? `${title}. ${card.summary}` : title;
 

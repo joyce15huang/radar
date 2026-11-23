@@ -76,7 +76,8 @@ export function OpenPostItem({ post, linkBody = true, divider = true }: { post: 
           <span className="font-bold text-neutral-900">{post.authorName}</span>
           <span className="text-neutral-600">
             {" "}
-            · {post.relation} · {post.ago}
+            · {post.relation}
+            {post.place ? ` · ${post.place}` : ""} · {post.ago}
           </span>
         </p>
         {linkBody ? (

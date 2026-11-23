@@ -30,6 +30,7 @@ export function OpenComposer({
   const [time, setTime] = useState("");
   const [showTime, setShowTime] = useState(false);
   const [audience, setAudience] = useState<Audience>("fof");
+  const [place, setPlace] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +45,7 @@ export function OpenComposer({
     if (!body.trim()) return setError("Write something first.");
     setSending(true);
     setError(null);
-    const res = await createOpenPost({ body, day, time: time || null, audience, tz });
+    const res = await createOpenPost({ body, day, time: time || null, audience, tz, place });
     setSending(false);
     if (!res.ok) return setError(res.error ?? "Couldn't post that.");
     router.push("/today");
@@ -118,6 +119,14 @@ export function OpenComposer({
                 Add a time
               </button>
             )}
+            <input
+              value={place}
+              onChange={(e) => setPlace(e.target.value)}
+              maxLength={60}
+              placeholder="Where (neighborhood, optional)"
+              aria-label="Where"
+              className="w-full border-b border-neutral-200 bg-transparent pb-1.5 text-[14px] text-neutral-900 outline-none placeholder:text-neutral-500"
+            />
             <p className="text-[13px] text-neutral-500">Posts end after their day.</p>
           </div>
         </div>

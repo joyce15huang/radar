@@ -13,6 +13,8 @@ export interface FeedPost {
   authorName: string;
   /** "You", "Friend", "Friend of marcus", "Nearby" */
   relation: string;
+  /** Short neighborhood, if the poster gave one. */
+  place: string | null;
   ago: string;
   body: string;
   when: string;

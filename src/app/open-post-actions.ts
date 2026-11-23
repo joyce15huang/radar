@@ -6,6 +6,7 @@ import { getActor } from "@/lib/actor";
 import { friendIdSet } from "@/lib/friendIds";
 import { isoFromLocal } from "@/lib/localDateTime";
 import { cleanCity } from "@/lib/scout/safety";
+import { areaOf, shortPlace, type AreaKey } from "@/lib/areas";
 import { serverTimeZone } from "@/lib/tz";
 import { createDirectEvent } from "@/app/poll-actions";
 import { notify } from "@/lib/push";
@@ -25,11 +26,18 @@ interface PostRow {
   has_time: boolean;
   audience: Audience;
   area: string | null;
+  place?: string | null;
   event_id: string | null;
   expires_at: string;
   created_at: string;
 }
-const POST_COLS = "id, author_id, body, starts_at, has_time, audience, area, event_id, expires_at, created_at";
+const BASE_COLS = "id, author_id, body, starts_at, has_time, audience, area, event_id, expires_at, created_at";
+let placeCol: boolean | null = null;
+/** Columns to read: with `place` once migration 0051 has run. */
+async function postCols(admin: Admin): Promise<string> {
+  if (placeCol === null) placeCol = !(await admin.from("open_posts").select("place").limit(1)).error;
+  return placeCol ? `${BASE_COLS}, place` : BASE_COLS;
+}
 
 export interface Result {
   ok: boolean;
@@ -54,6 +62,8 @@ interface Circle {
   /** friend-of-friend id → one mutual friend's id */
   fofVia: Map<string, string>;
   areas: Set<string>;
+  /** The Bay Area areas of my saved cities. */
+  bay: Set<AreaKey>;
 }
 
 async function circleOf(admin: Admin, me: string): Promise<Circle> {
@@ -74,14 +84,18 @@ async function circleOf(admin: Admin, me: string): Promise<Circle> {
   const areas = new Set(
     (((prefs?.locations as string[] | null) ?? []) as string[]).map((c) => cleanCity(c).toLowerCase()).filter(Boolean),
   );
-  return { me, friends, fofVia, areas };
+  const bay = new Set([...areas].map((a) => areaOf(a)).filter((x): x is AreaKey => !!x));
+  return { me, friends, fofVia, areas, bay };
 }
 
 function canSee(p: PostRow, c: Circle): boolean {
   if (p.author_id === c.me || c.friends.has(p.author_id)) return true;
   if (p.audience === "friends") return false;
   if (c.fofVia.has(p.author_id)) return true;
-  return p.audience === "nearby" && !!p.area && c.areas.has(p.area.toLowerCase());
+  if (p.audience !== "nearby") return false;
+  if (p.area && c.areas.has(p.area.toLowerCase())) return true;
+  const a = areaOf(p.place, p.area);
+  return !!a && c.bay.has(a);
 }
 
 async function namesOf(admin: Admin, ids: string[]): Promise<Map<string, string>> {
@@ -98,7 +112,7 @@ async function namesOf(admin: Admin, ids: string[]): Promise<Map<string, string>
 
 async function loadPost(admin: Admin, id: string): Promise<PostRow | null> {
   if (!UUID_RE.test(id)) return null;
-  const { data } = await admin.from("open_posts").select(POST_COLS).eq("id", id).maybeSingle();
+  const { data } = await admin.from("open_posts").select(await postCols(admin)).eq("id", id).maybeSingle();
   return (data as PostRow | null) ?? null;
 }
 
@@ -110,6 +124,7 @@ export async function createOpenPost(input: {
   time: string | null;
   audience: Audience;
   tz: string;
+  place?: string;
 }): Promise<Result> {
   const actor = await getActor();
   if (!actor) return { ok: false, error: "You're not signed in." };
@@ -138,9 +153,12 @@ export async function createOpenPost(input: {
   const { data: prefs } = await admin.from("preferences").select("locations").eq("user_id", me).maybeSingle();
   const area = cleanCity(((prefs?.locations as string[] | null) ?? [])[0] ?? "") || null;
 
+  const place = cleanCity(input.place ?? "") || null;
+  const row: Record<string, unknown> = { author_id: me, body, starts_at: startsAt, has_time: !!time, audience, area, expires_at: expiresAt };
+  if (place && (await postCols(admin)).includes("place")) row.place = place;
   const { data, error } = await admin
     .from("open_posts")
-    .insert({ author_id: me, body, starts_at: startsAt, has_time: !!time, audience, area, expires_at: expiresAt })
+    .insert(row)
     .select("id")
     .single();
   if (error || !data) return { ok: false, error: error?.message ?? "Couldn't post that." };
@@ -442,6 +460,7 @@ async function toFeed(admin: Admin, rows: PostRow[], c: Circle, tz: string): Pro
       authorId: r.author_id,
       authorName: names.get(r.author_id) ?? "someone",
       relation,
+      place: shortPlace(r.place) || null,
       ago: ago(r.created_at),
       body: r.body,
       when: whenLabel(r.starts_at, r.has_time, tz),
@@ -456,23 +475,24 @@ async function toFeed(admin: Admin, rows: PostRow[], c: Circle, tz: string): Pro
 export type FeedTab = "nearby" | "friends" | "weekend";
 
 /** The open posts I can see that haven't ended: soonest first, then newest. Null before migration 0048. */
-export async function listOpenPosts(tab: FeedTab): Promise<FeedPost[] | null> {
+export async function listOpenPosts(tab: FeedTab, area?: AreaKey | null): Promise<FeedPost[] | null> {
   const actor = await getActor();
   if (!actor) return [];
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("open_posts")
-    .select(POST_COLS)
+    .select(await postCols(admin))
     .gt("expires_at", new Date().toISOString())
     .order("starts_at", { ascending: true })
     .limit(300);
   if (error) return null;
   const c = await circleOf(admin, actor.actorId);
   const tz = await serverTimeZone();
-  const rows = ((data ?? []) as PostRow[])
+  const rows = ((data ?? []) as unknown as PostRow[])
     .filter((p) => canSee(p, c))
     .filter((p) => (tab === "friends" ? p.author_id === c.me || c.friends.has(p.author_id) : true))
     .filter((p) => (tab === "weekend" ? isThisWeekend(p.starts_at, tz) : true))
+    .filter((p) => !area || areaOf(p.place, p.area) === area)
     .slice(0, 60);
   return toFeed(admin, rows, c, tz);
 }

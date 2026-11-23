@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { AlertTriangle, Search } from "lucide-react";
 import { OpenPostItem, Avatar } from "@/components/open/OpenPostItem";
 import { WebFeedItem } from "@/components/open/WebFeedItem";
+import { AreaChips, AREA_COOKIE } from "@/components/open/AreaChips";
+import { areaOf, isAreaKey } from "@/lib/areas";
+import { cookies } from "next/headers";
 import type { Scouted } from "@/components/DigestCard";
 import { listOpenPosts, type FeedTab } from "@/app/open-post-actions";
 import { TabNav } from "@/components/TabNav";
@@ -21,7 +24,7 @@ import { CATEGORIES, CATEGORY_LABEL, SCOPES, type Scope } from "@/lib/explore";
 import { serverTimeZone } from "@/lib/tz";
 import type { DigestCardData } from "@/lib/types";
 
-type Params = { scope?: string; free?: string; cat?: string; friends?: string; q?: string; feed?: string };
+type Params = { scope?: string; free?: string; cat?: string; friends?: string; q?: string; feed?: string; area?: string };
 const TEAM_TODAY_WINDOW_MS = 7 * 86_400_000;
 const SCOUT_TYPES = new Set(["news_scout", "time_window"]);
 
@@ -39,6 +42,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const tz = await serverTimeZone();
 
   const feedTab: FeedTab = sp.feed === "friends" || sp.feed === "weekend" ? sp.feed : "nearby";
+  // Area filter: the chip picked, else the last one on this device, else all.
+  const areaRaw = sp.area ?? (await cookies()).get(AREA_COOKIE)?.value ?? "all";
+  const area = isAreaKey(areaRaw) ? areaRaw : null;
   const scope: Scope = sp.scope === "week" || sp.scope === "month" ? sp.scope : "weekend";
   const free = sp.free !== "0";
   const cat = (CATEGORIES as readonly string[]).includes(sp.cat ?? "") ? sp.cat : undefined;
@@ -60,7 +66,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       .order("created_at", { ascending: true }),
     friendIdSet(createAdminClient(), actorId),
     listExplore({ scope, free, category: cat, friendsOnly, q }),
-    listOpenPosts(feedTab),
+    listOpenPosts(feedTab, area),
   ]);
 
   const nowMs = Date.now();
@@ -99,7 +105,10 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const forYou = mapped.filter((c) => !SCOUT_TYPES.has(c.type)).sort((a, b) => rank(a.type) - rank(b.type));
   const filtered = !!(cat || friendsOnly || q);
   // Web finds sit in the Nearby feed, one after every few posts.
-  const web = feedTab === "nearby" ? (mapped.filter((c) => SCOUT_TYPES.has(c.type)) as Scouted[]).slice(0, 8) : [];
+  const web =
+    feedTab === "nearby"
+      ? (mapped.filter((c) => SCOUT_TYPES.has(c.type)) as Scouted[]).filter((c) => !area || areaOf(c.place) === area).slice(0, 8)
+      : [];
   type FeedItem = { kind: "post"; post: NonNullable<typeof openPosts>[number] } | { kind: "web"; card: Scouted };
   const feed: FeedItem[] = [];
   {
@@ -161,6 +170,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             </Link>
           ))}
         </nav>
+        <AreaChips current={area ?? "all"} feed={feedTab} />
         <Link href="/p/new" className="flex items-center gap-3 border-b border-neutral-200 py-3.5">
           <Avatar id={actorId} name={actor.activeProfile.username ?? "you"} size={32} />
           <span className="flex-1 text-[15px] text-neutral-500">What are you up for?</span>
