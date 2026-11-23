@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Loader2 } from "lucide-react";
-import { getPrivateWith, sendPrivateNote } from "@/app/comment-actions";
+import { sendPrivateNote } from "@/app/comment-actions";
+import { readApi } from "@/lib/readApi";
 import type { ChatMessage } from "@/lib/chat";
 
 /**
@@ -28,7 +29,7 @@ export function InviteNoteThread({ eventId, otherId, otherName }: { eventId: str
   });
 
   const load = useCallback(() => {
-    getPrivateWith(eventId, otherId)
+    readApi("getPrivateWith", eventId, otherId)
       .then((r) => {
         setMessages(r.messages);
         setClosed(r.closed);

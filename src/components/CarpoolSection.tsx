@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Car, Loader2, X, Check, Trash2, UserRound } from "lucide-react";
-import { listRides, offerRide, deleteRide, setSeat } from "@/app/carpool-actions";
+import { offerRide, deleteRide, setSeat } from "@/app/carpool-actions";
+import { readApi } from "@/lib/readApi";
 import type { Ride } from "@/lib/carpool";
 import { PlanSectionHeader, AddRow, PLAN_CARD, IN_CARD_FORM } from "./PlanSection";
 
@@ -13,7 +14,7 @@ export function CarpoolSection({ eventId, canRemove = false }: { eventId: string
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const reload = useCallback(() => {
-    listRides(eventId)
+    readApi("listRides", eventId)
       .then(setRides)
       .catch(() => setRides([]));
   }, [eventId]);

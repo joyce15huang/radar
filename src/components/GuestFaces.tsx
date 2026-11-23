@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Crown } from "lucide-react";
-import { getEventRoster } from "@/app/roster-actions";
+import { readApi } from "@/lib/readApi";
 import type { Attendee, EventRoster } from "@/lib/roster";
 
 /** Initials from a display name, tolerating a leading "@handle". */
@@ -50,7 +50,7 @@ export function GuestFaces({ eventId }: { eventId: string }) {
 
   useEffect(() => {
     let active = true;
-    getEventRoster(eventId)
+    readApi("getEventRoster", eventId)
       .then((r) => {
         if (active) setRoster(r);
       })

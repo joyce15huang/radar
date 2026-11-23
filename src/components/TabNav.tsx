@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Sparkles, User, MessageCircle } from "lucide-react";
-import { chatsBadge } from "@/app/chat-list-actions";
+import { readApi } from "@/lib/readApi";
 
 const TABS = [
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
@@ -21,7 +21,7 @@ export function TabNav() {
   // Chats badge: unread messages + invites and friend requests waiting on you.
   useEffect(() => {
     let live = true;
-    chatsBadge()
+    readApi("chatsBadge")
       .then((n) => live && setRequests(n))
       .catch(() => {});
     return () => {

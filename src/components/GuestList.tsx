@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AtSign, Check, ChevronDown, Link2, Loader2 } from "lucide-react";
-import { getEventRoster } from "@/app/roster-actions";
+import { readApi } from "@/lib/readApi";
 import { getInviteLink } from "@/app/invite-link-actions";
 import type { Attendee, EventRoster } from "@/lib/roster";
 
@@ -38,7 +38,7 @@ export function GuestList({
 
   useEffect(() => {
     let live = true;
-    getEventRoster(eventId)
+    readApi("getEventRoster", eventId)
       .then((r) => {
         if (!live) return;
         setRoster(r);

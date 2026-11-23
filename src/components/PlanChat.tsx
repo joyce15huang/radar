@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ArrowUp, Loader2, Lock, Megaphone, Trash2 } from "lucide-react";
-import { getChat, postChat, sendPrivateNote, deleteComment } from "@/app/comment-actions";
-import { markChatRead } from "@/app/chat-list-actions";
+import { postChat, sendPrivateNote, deleteComment } from "@/app/comment-actions";
+import { readApi } from "@/lib/readApi";
 import type { ChatMessage, ChatView, PrivateThread } from "@/lib/chat";
 import { initials } from "@/lib/cardTypes";
 
@@ -44,14 +44,14 @@ export function PlanChat({
 }) {
   const [view, setView] = useState<ChatView | null | "loading">("loading");
   const reload = useCallback(() => {
-    getChat(eventId)
+    readApi("getChat", eventId)
       .then((v) => {
         setView(v);
         if (!v) return;
         // Opening a thread reads it.
         const threads =
           show === "all" ? ["group", ...v.privateThreads.map((t) => t.otherId)] : show === "group" ? ["group"] : [show];
-        void markChatRead(eventId, threads);
+        void readApi("markChatRead", eventId, threads);
       })
       .catch(() => setView(null));
   }, [eventId, show]);

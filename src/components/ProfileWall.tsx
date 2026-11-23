@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Trash2, ImageOff, Images, X, CalendarClock, Heart, MessageCircle, Loader2, Camera } from "lucide-react";
 import { deletePost } from "@/app/post-actions";
-import { removeFromGrid, getPostSocial, toggleLike, addComment, type PostSocial } from "@/app/photo-actions";
+import { removeFromGrid, toggleLike, addComment, type PostSocial } from "@/app/photo-actions";
+import { readApi } from "@/lib/readApi";
 import { EmptyState } from "./LibraryWall";
 import { PhotoGallery } from "./PhotoGallery";
 
@@ -129,7 +130,7 @@ function PostDetail({
 
   useEffect(() => {
     let live = true;
-    getPostSocial(postId).then((s) => live && setSocial(s));
+    readApi("getPostSocial", postId).then((s) => live && setSocial(s));
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => {

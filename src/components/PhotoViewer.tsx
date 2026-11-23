@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X, Heart, Loader2 } from "lucide-react";
-import { toggleLike, getPostSocial } from "@/app/photo-actions";
+import { toggleLike } from "@/app/photo-actions";
+import { readApi } from "@/lib/readApi";
 import { savePhoto } from "@/lib/savePhoto";
 
 export interface ViewerPhoto {
@@ -44,7 +45,7 @@ export function PhotoViewer({
   useEffect(() => {
     if (!photo || social[photo.postId]) return;
     let live = true;
-    getPostSocial(photo.postId).then((s) => {
+    readApi("getPostSocial", photo.postId).then((s) => {
       if (live) setSocial((m) => ({ ...m, [photo.postId]: { likes: s.likes, liked: s.liked } }));
     });
     return () => {

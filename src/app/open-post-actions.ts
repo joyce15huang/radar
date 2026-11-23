@@ -67,7 +67,10 @@ interface Circle {
 }
 
 async function circleOf(admin: Admin, me: string): Promise<Circle> {
-  const friends = await friendIdSet(admin, me);
+  const [friends, { data: prefs }] = await Promise.all([
+    friendIdSet(admin, me),
+    admin.from("preferences").select("locations").eq("user_id", me).maybeSingle(),
+  ]);
   const fofVia = new Map<string, string>();
   const ids = [...friends];
   if (ids.length) {
@@ -80,7 +83,6 @@ async function circleOf(admin: Admin, me: string): Promise<Circle> {
       if (other !== me && !friends.has(other) && !fofVia.has(other)) fofVia.set(other, via);
     }
   }
-  const { data: prefs } = await admin.from("preferences").select("locations").eq("user_id", me).maybeSingle();
   const areas = new Set(
     (((prefs?.locations as string[] | null) ?? []) as string[]).map((c) => cleanCity(c).toLowerCase()).filter(Boolean),
   );

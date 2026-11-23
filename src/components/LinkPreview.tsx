@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getLinkPreview, type LinkPreview as Preview } from "@/app/link-preview-actions";
+import type { LinkPreview as Preview } from "@/app/link-preview-actions";
+import { readApi } from "@/lib/readApi";
 
 /** A thin preview for a link (picture, title, site), like a shared link in a chat. Shows nothing until it has a title. */
 export function LinkPreview({ url }: { url: string }) {
@@ -9,7 +10,7 @@ export function LinkPreview({ url }: { url: string }) {
   const [badImg, setBadImg] = useState(false);
   useEffect(() => {
     let live = true;
-    getLinkPreview(url)
+    readApi("getLinkPreview", url)
       .then((r) => live && setP(r))
       .catch(() => {});
     return () => {

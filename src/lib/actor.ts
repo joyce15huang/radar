@@ -2,6 +2,7 @@
 // "personas" (profiles); the `active_profile` cookie names which one is active.
 // Server-only: reads cookies + the session. Import from server components /
 // server actions, never client code.
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 
@@ -45,11 +46,13 @@ interface OwnedRow {
  * Resilient to a not-yet-applied 0019 migration: if `owner_id` doesn't exist the
  * lookup fails softly and the caller simply acts as their primary id.
  */
-export async function getActor(): Promise<Actor | null> {
+export const getActor = cache(async function getActor(): Promise<Actor | null> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Verified JWT claims: checked locally when the project uses asymmetric signing
+  // keys (no network round trip); otherwise this asks the Auth server, like getUser.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims as { sub?: string; email?: string } | undefined;
+  const user = claims?.sub ? { id: claims.sub, email: claims.email ?? null } : null;
   if (!user) return null;
 
   const cookieStore = await cookies();
@@ -84,4 +87,4 @@ export async function getActor(): Promise<Actor | null> {
     },
     supabase,
   };
-}
+});

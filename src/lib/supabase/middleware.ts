@@ -7,6 +7,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * unauthenticated users go to /login; authenticated users who haven't picked a
  * username yet go to /onboarding.
  */
+const ONBOARDED_COOKIE = "onboarded";
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -31,10 +33,11 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANT: getUser() must be called to refresh the token. Do not remove.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Refreshes the session cookie when needed and verifies the JWT. With
+  // asymmetric signing keys this is checked locally — no Auth round trip per tap.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const sub = (claimsData?.claims as { sub?: string } | undefined)?.sub;
+  const user = sub ? { id: sub } : null;
 
   const path = request.nextUrl.pathname;
   const isAuthOrInternal =
@@ -65,6 +68,8 @@ export async function updateSession(request: NextRequest) {
   // onboarding/login routes themselves to avoid a redirect loop).
   if (user && !isAuthOrInternal && !path.startsWith("/login")) {
     const onOnboarding = path.startsWith("/onboarding");
+    // Once we've seen this login has a username, skip the lookup on every tap.
+    if (!onOnboarding && request.cookies.get(ONBOARDED_COOKIE)?.value === user.id) return supabaseResponse;
     const { data: profile } = await supabase
       .from("profiles")
       .select("username")
@@ -83,6 +88,9 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/calendar";
       return NextResponse.redirect(url);
+    }
+    if (profile?.username) {
+      supabaseResponse.cookies.set(ONBOARDED_COOKIE, user.id, { path: "/", httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 30 });
     }
   }
 

@@ -24,7 +24,8 @@ import type {
 import { labelHasTime } from "@/lib/localDateTime";
 import { startKey, cardIso, dayInTz } from "@/lib/calendarSort";
 import { updateCardStatus } from "@/app/feed-actions";
-import { openAsEvent, planGuestCount, cancelEvent } from "@/app/event-actions";
+import { openAsEvent, cancelEvent } from "@/app/event-actions";
+import { readApi } from "@/lib/readApi";
 import { InviteComposer } from "./InviteComposer";
 import { EmptyState } from "./LibraryWall";
 import { addDays, timeLabel, type Trip } from "@/lib/itinerary";
@@ -109,7 +110,7 @@ export function CalendarList({
     const host = !isInvite || (!!card.hostId && card.hostId === viewerId);
     // A plan you host that has guests: cancel it for everyone (confirm first).
     if (isInvite && host && card.eventId && variant !== "past") {
-      const guests = await planGuestCount(card.eventId).catch(() => 0);
+      const guests = await readApi("planGuestCount", card.eventId).catch(() => 0);
       if (guests > 0) {
         setSwipeOpen(null);
         setCancelError(null);
